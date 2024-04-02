@@ -1,22 +1,12 @@
 <launch>
-  <arg name="scene_name" default="floor_5"/>
-  <arg name="iou_threshold" default="0.25"/>
+  <arg name="path_to_gt_map" default=""/>
+  <arg name="path_to_save_json" default="/home/kirill/TopoSLAM/toposlam_ws/src/simple_toposlam_model/graph_jsons_new/husky_rosbag.json"/>
+  <arg name="config_file" default="husky_rosbag_two_realsenses.yaml"/>
 
   <node pkg="prism_topomap" type="prism_topomap_node.py" name="prism_topomap_node" output="screen">
-    <param name="scene_name" value="$(arg scene_name)"/>
-    <param name="path_to_save_json" value="/home/kirill/TopoSLAM/toposlam_ws/src/simple_toposlam_model/graph_jsons_new/$(arg scene_name)_$(arg iou_threshold).json"/>
-    <param name="iou_threshold" value="$(arg iou_threshold)"/>
-    <param name="pointcloud_topic" value="/velodyne_points"/>
-    <!-- param name="front_image_topic" value="/zed_node/left/image_rect_color"/ -->
-    <param name="front_image_topic" value="/realsense_gripper/color/image_raw"/>
-    <param name="back_image_topic" value="/realsense_back/color/image_raw"/>
-    <param name="odometry_topic" value="/cartographer/tracked_global_odometry"/>
-    <param name="map_frame" value="odom"/>
-    <param name="publish_tf_from_odom" value="true"/>
-    <param name="place_recognition_model" value="mssplace"/>
-    <param name="registration_model" value="orb"/>
-    <param name="floor_height" value="-0.9"/>
-    <param name="ceiling_height" value="1.5"/>
+    <param name="path_to_gt_map" value="$(arg path_to_gt_map)"/>
+    <param name="path_to_save_json" value="$(arg path_to_save_json)"/>
+    <param name="config_file" value="$(arg config_file)"/>
   </node>
 
   <!-- node pkg="image_transport" type="republish" name="decompress_front_image" args="compressed in:=/zed_node/left/image_rect_color raw out:=/zed_node/left/image_rect_color"/ -->

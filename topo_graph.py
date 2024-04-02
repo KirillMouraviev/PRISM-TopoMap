@@ -12,8 +12,6 @@ from collections import deque
 from typing import Dict
 from torch import Tensor
 
-import sys
-sys.path.append('/home/kirill/TopoSLAM/OpenPlaceRecognition/src')
 import faiss
 import torch
 from scipy.spatial.transform import Rotation

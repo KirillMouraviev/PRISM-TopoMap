@@ -32,7 +32,7 @@ rospy.init_node('prism_topomap_node')
 class TopoSLAMModel():
     def __init__(self):
         print('File:', __file__)
-        self.scene_name = rospy.get_param('~scene_name')
+        self.path_to_gt_map = rospy.get_param('~path_to_gt_map')
         self.path_to_save_json = rospy.get_param('~path_to_save_json')
         rospack = rospkg.RosPack()
         config_file = os.path.join(rospack.get_path('prism_topomap'), 'config', rospy.get_param('~config_file'))
@@ -89,7 +89,6 @@ class TopoSLAMModel():
         # TopoMap
         topomap_config = config['topomap']
         self.iou_threshold = topomap_config['iou_threshold']
-        self.iou_threshold2 = topomap_config['iou_threshold2']
         pointcloud_config = config['input']['pointcloud']
         self.floor_height = pointcloud_config['floor_height']
         self.ceil_height = pointcloud_config['ceiling_height']
@@ -106,15 +105,11 @@ class TopoSLAMModel():
         self.inline_registration_score_threshold = inline_registration_config['score_threshold']
         # Visualization
         visualization_config = config['visualization']
-        self.publish_gt_map = visualization_config['publish_gt_map']
-        if self.publish_gt_map:
-            gt_map_dir = '/home/kirill/TopoSLAM/GT/{}'.format(self.scene_name)
-            try:
-                gt_map_filename = [f for f in os.listdir(gt_map_dir) if f.startswith('map_cropped_')][0]
-                gt_map = GTMap(os.path.join(gt_map_dir, gt_map_filename))
-            except:
-                gt_map = None
-            self.gt_map = gt_map
+        self.publish_gt_map_flag = visualization_config['publish_gt_map']
+        if self.publish_gt_map_flag:
+            self.gt_map = GTMap(self.path_to_gt_map)
+        else:
+            self.gt_map = None
         self.map_frame = visualization_config['map_frame']
         self.publish_tf_from_odom = visualization_config['publish_tf_from_odom']
 
@@ -136,10 +131,10 @@ class TopoSLAMModel():
             self.pose_subscriber = rospy.Subscriber(pose_topic, PoseStamped, self.pose_callback)
         # Images
         front_image_config = input_config['image_front']
-        front_image_topic = rospy.get_param('~front_image_topic', None)
+        front_image_topic = front_image_config['topic']
         self.front_image_subscriber = rospy.Subscriber(front_image_topic, Image, self.front_image_callback)
         back_image_config = input_config['image_back']
-        back_image_topic = rospy.get_param('~back_image_topic', None)
+        back_image_topic = back_image_config['topic']
         self.back_image_subscriber = rospy.Subscriber(back_image_topic, Image, self.back_image_callback)
         # Localization
         self.localization_subscriber = rospy.Subscriber('/localized_nodes', Float32MultiArray, self.localization_callback)
@@ -482,7 +477,6 @@ class TopoSLAMModel():
             vx, vy, vtheta = self.graph.get_vertex(v)['pose_for_visualization']
             x, y, _ = global_pose_for_visualization
             #print('IoU between ({}, {}) and ({}, {}) is {}'.format(x, y, vx, vy, iou))
-            #if self.graph.has_edge(self.last_vertex_id, v) and iou > self.iou_threshold2:
             if iou > iou_threshold:
                 found_proper_vertex = True
                 print('Change to vertex ({}, {})'.format(vx, vy))
@@ -636,7 +630,8 @@ class TopoSLAMModel():
             #print('Last vertex pose:', self.last_vertex['pose_for_visualization'])
             #print('Rel pose of vcur:', self.rel_pose_of_vcur)
             #print('True rel pose:', get_rel_pose(*self.last_vertex['pose_for_visualization'], *global_pose_for_visualization))
-        #self.publish_gt_map()
+        if self.publish_gt_map_flag:
+            self.publish_gt_map()
         t1 = rospy.Time.now().to_sec()
         if cur_cloud is None:
             print('No point cloud received!')
@@ -699,7 +694,7 @@ class TopoSLAMModel():
 
     def pcd_callback(self, msg):
         dt = (rospy.Time.now() - msg.header.stamp).to_sec()
-        #print('Msg lag is {} seconds'.format(dt))
+        print('Msg lag is {} seconds'.format(dt))
         if dt > 0.5:
             return
         cur_global_pose, cur_odom_pose, cur_img_front, cur_img_back = self.get_sync_pose_and_images(msg.header.stamp.to_sec())
