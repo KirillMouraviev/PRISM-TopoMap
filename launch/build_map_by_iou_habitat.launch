@@ -1,0 +1,11 @@
+<launch>
+  <arg name="scene_name" default="2n8kARJN3HM"/>
+  <arg name="iou_threshold" default="0.3"/>
+  <arg name="config_file" default="habitat_mp3d.yaml"/>
+
+  <node pkg="prism_topomap" type="prism_topomap_node.py" name="prism_topomap_node" output="screen">
+    <param name="scene_name" value="$(arg scene_name)"/>
+    <param name="path_to_save_json" value="/home/kirill/TopoSLAM/toposlam_ws/src/simple_toposlam_model/graph_jsons_new/$(arg scene_name)_$(arg iou_threshold).json"/>
+    <param name="config_file" value="$(arg config_file)"/>
+  </node>
+</launch>
