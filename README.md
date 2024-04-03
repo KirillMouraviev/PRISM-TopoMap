@@ -19,6 +19,8 @@ cd ../..
 catkin_make
 ```
 
+After that, download the actual [weights](https://drive.google.com/file/d/1r4Nw0YqHC9PKiZXDmUAWZkOTvgporPnS/view?usp=sharing) for the place recognition model] and set correct path to the weights in the config files `habitat_mp3d.yaml` and `husky_rosbag.yaml`.
+
 ## Launch
 We provide two examples of launch scripts: for Habitat simulator and for rosbag from Husky robot.
 
