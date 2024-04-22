@@ -231,10 +231,10 @@ class Localizer():
                                                                                                                 k=self.top_k)
             t2 = time.time()
             #print('Get k most similar time:', t2 - t1)
-            save_dir = os.path.join(tests_dir, 'test_{}'.format(self.cnt))
-            self.cnt += 1
-            if not os.path.exists(save_dir):
-                os.mkdir(save_dir)
+            #save_dir = os.path.join(tests_dir, 'test_{}'.format(self.cnt))
+            #self.cnt += 1
+            #if not os.path.exists(save_dir):
+            #    os.mkdir(save_dir)
             #self.save_reg_test_data(vertex_ids_pr_raw, transforms, pr_scores, reg_scores, save_dir)
             t3 = time.time()
             #print('Saving time:', t3 - t2)

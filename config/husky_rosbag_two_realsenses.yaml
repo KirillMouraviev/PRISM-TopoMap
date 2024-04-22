@@ -2,7 +2,9 @@ input:
   pointcloud:
     topic: /velodyne_points
     fields: xyz
-    rotation_matrix: [[1, 0, 0], [0, 1, 0], [0, 0, 1]]
+    rotation_matrix: [[ 0.9992396 , -0.        , -0.03899011],
+                      [ 0.        ,  1.        , -0.        ],
+                      [ 0.03899011,  0.        ,  0.9992396 ]]
     floor_height: -0.9
     ceiling_height: 1.5
   odometry:
@@ -18,8 +20,9 @@ topomap:
   iou_threshold: 0.3
   localization_frequency: 2.0
 place_recognition:
-  model: mssplace
-  weights_path: /home/kirill/TopoSLAM/OpenPlaceRecognition/weights/place_recognition/habitat_multimodal_resnet18-gem-seqgem_minkloc3dv2.pth
+  model: minkloc3d
+  #weights_path: /home/kirill/TopoSLAM/OpenPlaceRecognition/weights/place_recognition/habitat_multimodal_resnet18-gem-seqgem_minkloc3dv2.pth
+  weights_path: /home/kirill/TopoSLAM/OpenPlaceRecognition/weights/place_recognition/minkloc3d_nclt.pth
   model_config_path: /home/kirill/TopoSLAM/OpenPlaceRecognition/configs/model/place_recognition/resnet18-seqgem_minkloc3dv2.yaml
   top_k: 5
 scan_matching:
@@ -40,5 +43,5 @@ scan_matching_along_edge:
   min_matches: 5
 visualization:
   publish_gt_map: false
-  map_frame: odom
-  publish_tf_from_odom: true
+  map_frame: local_map_lidar
+  publish_tf_from_odom: false

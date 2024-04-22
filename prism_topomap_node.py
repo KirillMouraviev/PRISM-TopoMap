@@ -82,13 +82,14 @@ class TopoSLAMModel():
         self.rel_pose_cnt = 0
         self.iou_cnt = 0
         self.current_stamp = None
-        rospy.Timer(rospy.Duration(2.0), self.localizer.localize)
+        rospy.Timer(rospy.Duration(self.localization_frequency), self.localizer.localize)
         self.mutex = Lock()
 
     def init_params_from_config(self, config):
         # TopoMap
         topomap_config = config['topomap']
         self.iou_threshold = topomap_config['iou_threshold']
+        self.localization_frequency = topomap_config['localization_frequency']
         pointcloud_config = config['input']['pointcloud']
         self.floor_height = pointcloud_config['floor_height']
         self.ceil_height = pointcloud_config['ceiling_height']
@@ -321,7 +322,7 @@ class TopoSLAMModel():
         #print('Last front image stamp:', self.rgb_buffer_front[-1][0])
         #print('Last back image stamp:', self.rgb_buffer_back[-1][0])
         if i == 0:
-            if self.poses[0][0] - timestamp > 0.2:
+            if self.poses[0][0] - timestamp > 0.2 or len(self.rgb_buffer_front) == 0 or len(self.rgb_buffer_back) == 0:
                 #print('No sync pose available!')
                 return None, None, None, None
             return self.poses[0][1:], self.poses[0][1:], self.rgb_buffer_front[j][1], self.rgb_buffer_back[k][1]
@@ -344,7 +345,7 @@ class TopoSLAMModel():
     def is_in_sight(self):
         cloud = self.last_vertex['cloud']
         grid = get_occupancy_grid(cloud)
-        grid[156:198, 156:198] = 1
+        grid = raycast(grid)
         x, y, theta = self.rel_pose_of_vcur
         if abs(x) > 8 or abs(y) > 8:
             return False
@@ -463,7 +464,8 @@ class TopoSLAMModel():
     def reattach_by_localization(self, global_pose_for_visualization, iou_threshold, cur_cloud, timestamp):
         vertex_ids, rel_poses = self.localization_results
         if len(self.rel_poses_stamped) > 0 and self.localizer.localized_stamp < self.rel_poses_stamped[0][0]:
-            print('Old localization! Ignore it')
+            print('Old localization 1! Ignore it')
+            print((self.rel_poses_stamped[0][0] - self.localizer.localized_stamp).to_sec())
             return
         found_proper_vertex = False
         # First try to pass the nearest edge
@@ -552,7 +554,8 @@ class TopoSLAMModel():
                     print('True rel pose for edge:', true_rel_pose)
                     print('Predicted rel pose for edge:', pred_rel_pose)
         else:
-            print('Old localization! Ignore it')
+            print('Old localization 2! Ignore it')
+            print((self.rel_poses_stamped[0][0] - self.localizer.localized_stamp).to_sec())
         self.rel_poses_stamped = [[self.current_stamp] + self.rel_pose_of_vcur]
         self.graph.save_vertex(new_vertex_id)
         self.last_vertex_id = new_vertex_id
@@ -563,7 +566,8 @@ class TopoSLAMModel():
         #self.publish_cur_cloud()
         self.mutex.acquire()
         if len(self.rel_poses_stamped) > 0 and self.localizer.localized_stamp < self.rel_poses_stamped[0][0]:
-            print('Old localization! Ignore it')
+            print('Old localization 3! Ignore it')
+            print((self.rel_poses_stamped[0][0] - self.localizer.localized_stamp).to_sec())
             self.mutex.release()
             return
         n = msg.layout.dim[0].size // 4
@@ -652,7 +656,8 @@ class TopoSLAMModel():
         #print('Rel pose of vcur:', self.rel_pose_of_vcur)
         #print('Last vertex pose:', self.last_vertex['pose_for_visualization'])
         #print('Global pose:', global_pose_for_visualization)
-        iou = get_iou(*self.rel_pose_of_vcur, self.last_vertex['cloud'], cur_cloud, save=True)
+        iou = get_iou(*self.rel_pose_of_vcur, self.last_vertex['cloud'], cur_cloud, save=True, cnt=self.iou_cnt)
+        self.iou_cnt += 1
         self.cur_iou = iou
         #print('In sight:', in_sight)
         #print('IoU:', iou)
@@ -694,7 +699,7 @@ class TopoSLAMModel():
 
     def pcd_callback(self, msg):
         dt = (rospy.Time.now() - msg.header.stamp).to_sec()
-        print('Msg lag is {} seconds'.format(dt))
+        #print('Msg lag is {} seconds'.format(dt))
         if dt > 0.5:
             return
         cur_global_pose, cur_odom_pose, cur_img_front, cur_img_back = self.get_sync_pose_and_images(msg.header.stamp.to_sec())

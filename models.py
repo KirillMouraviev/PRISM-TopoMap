@@ -36,7 +36,8 @@ def get_registration_model(config):
                                                    detector_type=config['detector_type'], 
                                                    min_matches=config['min_matches'],
                                                    outlier_thresholds=config['outlier_thresholds'],
-                                                   max_range=config['max_point_cloud_range'])
+                                                   max_range=config['max_point_cloud_range'],
+                                                   save_dir='/home/kirill/TopoSLAM/OpenPlaceRecognition/test_registration')
     elif reg_model_type == 'geotransformer':
         REGISTRATION_MODEL_CONFIG_PATH = config['model_config_path']
         REGISTRATION_WEIGHTS_PATH = config['weights_path']

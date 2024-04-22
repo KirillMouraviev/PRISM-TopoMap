@@ -50,10 +50,10 @@ class TopologicalGraph():
         self.ceil_height = ceil_height
         self.device = torch.device('cuda:0')
         self.image_transform = DefaultHM3DImageTransform(train=False)
-        self.graph_save_path = '/home/kirill/TopoSLAM/toposlam_ws/src/simple_toposlam_model/test_husky_rosbag_mssplace_13/graph_data'
+        self.graph_save_path = '/home/kirill/TopoSLAM/toposlam_ws/src/simple_toposlam_model/test_husky_rosbag_minkloc3d_4/graph_data'
         if not os.path.exists(self.graph_save_path):
             os.mkdir(self.graph_save_path)
-        self.pr_results_save_path = '/home/kirill/TopoSLAM/toposlam_ws/src/simple_toposlam_model/test_husky_rosbag_mssplace_13/place_recognition_data'
+        self.pr_results_save_path = '/home/kirill/TopoSLAM/toposlam_ws/src/simple_toposlam_model/test_husky_rosbag_minkloc3d_4/place_recognition_data'
         if not os.path.exists(self.pr_results_save_path):
             os.mkdir(self.pr_results_save_path)
         self.global_pose_for_visualization = None
@@ -224,6 +224,7 @@ class TopologicalGraph():
         pred_tf = []
         pred_i_filtered = []
         for idx in pred_i:
+            print('Stamp {}, vertex id {}'.format(stamp, idx))
             if idx < 0:
                 continue
             t1 = time.time()
@@ -232,7 +233,8 @@ class TopologicalGraph():
             cand_cloud_tensor = torch.Tensor(cand_cloud[:, :3]).to(self.device)
             ref_cloud_tensor = torch.Tensor(cloud[:, :3]).to(self.device)
             start_time = time.time()
-            tf_matrix, score = self.registration_pipeline.infer(ref_cloud_tensor, cand_cloud_tensor)
+            save_dir = os.path.join(self.pr_results_save_path, str(stamp))
+            tf_matrix, score = self.registration_pipeline.infer(ref_cloud_tensor, cand_cloud_tensor, save_dir=save_dir)
             t2 = time.time()
             #print('Registration time:', t2 - t1)
             #t3 = time.time()

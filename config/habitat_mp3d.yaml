@@ -17,10 +17,11 @@ input:
 topomap:
   iou_threshold: 0.3
   iou_threshold2: 0.35
-  localization_frequency: 2.0
+  localization_frequency: 3.0
 place_recognition:
-  model: mssplace
-  weights_path: /home/kirill/TopoSLAM/OpenPlaceRecognition/weights/place_recognition/habitat_multimodal_resnet18-gem-seqgem_minkloc3dv2.pth
+  model: minkloc3d
+  #weights_path: /home/kirill/TopoSLAM/OpenPlaceRecognition/weights/place_recognition/habitat_multimodal_resnet18-gem-seqgem_minkloc3dv2.pth
+  weights_path: /home/kirill/TopoSLAM/OpenPlaceRecognition/weights/place_recognition/minkloc3d_nclt.pth
   model_config_path: /home/kirill/TopoSLAM/OpenPlaceRecognition/configs/model/place_recognition/resnet18-seqgem_minkloc3dv2.yaml
   top_k: 5
 scan_matching:
