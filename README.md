@@ -3,7 +3,16 @@ The PRISM-TopoMap - online topological mapping method with place recognition and
 
 ## Paper
 
-Reference to the Arxiv paper.
+The PRISM-TopoMap method is described in the [paper](https://arxiv.org/abs/2404.01674). If you use this code in your research, please cite this paper. A bibtex entry is provided below.
+
+```
+@article{muravyev2024prism,
+  title={PRISM-TopoMap: Online Topological Mapping with Place Recognition and Scan Matching},
+  author={Muravyev, Kirill and Melekhin, Alexander and Yudin, Dmitriy and Yakovlev, Konstantin},
+  journal={arXiv preprint arXiv:2404.01674},
+  year={2024}
+}
+```
 
 ## Prerequisites:
 - [OpenPlaceRecognition](https://github.com/alexmelekhin/openplacerecognition)
@@ -18,6 +27,8 @@ git clone https://github.com/KirillMouraviev/PRISM-TopoMap
 cd ../..
 catkin_make
 ```
+
+After that, download the actual [weights](https://drive.google.com/file/d/1r4Nw0YqHC9PKiZXDmUAWZkOTvgporPnS/view?usp=sharing) for the place recognition model] and set correct path to the weights in the config files `habitat_mp3d.yaml` and `husky_rosbag.yaml`.
 
 ## Launch
 We provide two examples of launch scripts: for Habitat simulator and for rosbag from Husky robot.
