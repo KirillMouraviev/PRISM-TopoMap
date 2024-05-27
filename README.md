@@ -23,6 +23,7 @@ The PRISM-TopoMap method is described in the [paper](https://arxiv.org/abs/2404.
 After installing ROS and OpenPlaceRecognition, build PRISM-TopoMap as ROS package:
 ```
 cd your_ros_workspace/src
+git clone https://github.com/KirillMouraviev/toposlam_msgs
 git clone https://github.com/KirillMouraviev/PRISM-TopoMap
 cd ../..
 catkin_make
