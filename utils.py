@@ -44,14 +44,20 @@ def transform_pcd(points, x, y, theta):
     points_transformed[:, 1] += y
     return points_transformed
 
-def get_occupancy_grid(points_xyz, resolution=0.1, radius=18):
+def get_occupancy_grid(points_xyz, resolution=0.1, radius=18, clip=8):
     index = np.isnan(points_xyz).any(axis=1)
     points_xyz = np.delete(points_xyz, index, axis=0)
-    points_xyz = np.clip(points_xyz, -8, 8)
+    points_xyz = points_xyz[(points_xyz[:, 0] > -clip) * (points_xyz[:, 0] < clip) * (points_xyz[:, 1] > -clip) * (points_xyz[:, 1] < clip)]
+    points_xyz_obstacles = remove_floor_and_ceil(points_xyz, floor_height=-0.3, ceil_height=0.5)
     #print('Points xyz:', points_xyz.shape, points_xyz[0], points_xyz.min(), points_xyz.max())
-    points_ij = np.round(points_xyz[:, :2] / resolution).astype(int) + [int(radius / resolution), int(radius / resolution)]
     grid = np.zeros((int(2 * radius / resolution), int(2 * radius / resolution)), dtype=np.uint8)
+    points_ij = np.round(points_xyz[:, :2] / resolution).astype(int) + [int(radius / resolution), int(radius / resolution)]
+    points_ij = points_ij[(points_ij[:, 0] >= 0) * (points_ij[:, 0] < grid.shape[0]) * (points_ij[:, 1] >= 0) * (points_ij[:, 1] < grid.shape[1])]
     grid[points_ij[:, 0], points_ij[:, 1]] = 1
+    grid = raycast(grid)
+    points_ij = np.round(points_xyz_obstacles[:, :2] / resolution).astype(int) + [int(radius / resolution), int(radius / resolution)]
+    points_ij = points_ij[(points_ij[:, 0] >= 0) * (points_ij[:, 0] < grid.shape[0]) * (points_ij[:, 1] >= 0) * (points_ij[:, 1] < grid.shape[1])]
+    grid[points_ij[:, 0], points_ij[:, 1]] = 2
     return grid
 
 def normalize(angle):
@@ -124,8 +130,10 @@ def get_iou(rel_x, rel_y, rel_theta, cur_cloud, v_cloud, save=False, cnt=0):
     cur_grid_transformed = get_occupancy_grid(cur_cloud_transformed, resolution=resolution)
     cur_grid_transformed = raycast(cur_grid_transformed, center_point=(cur_grid_transformed.shape[0] // 2 + rel_x / resolution, 
                                                                        cur_grid_transformed.shape[1] // 2 + rel_y / resolution))
+    cur_grid_transformed[cur_grid_transformed > 0] = 1
     v_grid = get_occupancy_grid(v_cloud, resolution=resolution)
     v_grid = raycast(v_grid)
+    v_grid[v_grid > 0] = 1
     intersection = np.sum(v_grid * cur_grid_transformed)
     union = np.sum(v_grid | cur_grid_transformed)
     grid_aligned = np.zeros((v_grid.shape[0], v_grid.shape[1], 3))

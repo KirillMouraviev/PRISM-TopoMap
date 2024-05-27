@@ -15,12 +15,14 @@ from torch import Tensor
 import faiss
 import torch
 from scipy.spatial.transform import Rotation
-from skimage.io import imsave
+from skimage.io import imread, imsave
 from opr.pipelines.registration import PointcloudRegistrationPipeline, RansacGlobalRegistrationPipeline, Feature2DGlobalRegistrationPipeline
 from opr.datasets.augmentations import DefaultHM3DImageTransform
 import MinkowskiEngine as ME
 import open3d as o3d
 import open3d.pipelines.registration as registration
+from toposlam_msgs.msg import Edge
+from toposlam_msgs.msg import TopologicalGraph as TopologicalGraphMessage
 
 
 class TopologicalGraph():
@@ -37,23 +39,24 @@ class TopologicalGraph():
         self.vertices = []
         self.adj_lists = []
         self.map_frame = map_frame
-        self.pub = rospy.Publisher('topological_map', MarkerArray, latch=True, queue_size=100)
+        self.graph_viz_pub = rospy.Publisher('topological_map', MarkerArray, latch=True, queue_size=100)
+        self.graph_pub = rospy.Publisher('graph', TopologicalGraphMessage, latch=True, queue_size=100)
         self.place_recognition_model = place_recognition_model
         self.index = place_recognition_index
         self.registration_pipeline = registration_model
         self.registration_score_threshold = registration_score_threshold
         self.inline_registration_pipeline = inline_registration_model
         self.inline_registration_score_threshold = 0.5
-        self.ref_cloud_publisher = rospy.Publisher('/ref_cloud', PointCloud2, latch=True, queue_size=100)
+        self.ref_cloud_pub = rospy.Publisher('/ref_cloud', PointCloud2, latch=True, queue_size=100)
         self._pointcloud_quantization_size = 0.2
         self.floor_height = floor_height
         self.ceil_height = ceil_height
         self.device = torch.device('cuda:0')
         self.image_transform = DefaultHM3DImageTransform(train=False)
-        self.graph_save_path = '/home/kirill/TopoSLAM/toposlam_ws/src/simple_toposlam_model/test_husky_rosbag_minkloc3d_4/graph_data'
+        self.graph_save_path = '/home/kirill/TopoSLAM/toposlam_ws/src/simple_toposlam_model/test_husky_rosbag_minkloc3d_5/graph_data'
         if not os.path.exists(self.graph_save_path):
             os.mkdir(self.graph_save_path)
-        self.pr_results_save_path = '/home/kirill/TopoSLAM/toposlam_ws/src/simple_toposlam_model/test_husky_rosbag_minkloc3d_4/place_recognition_data'
+        self.pr_results_save_path = '/home/kirill/TopoSLAM/toposlam_ws/src/simple_toposlam_model/test_husky_rosbag_minkloc3d_5/place_recognition_data'
         if not os.path.exists(self.pr_results_save_path):
             os.mkdir(self.pr_results_save_path)
         self.global_pose_for_visualization = None
@@ -86,11 +89,19 @@ class TopologicalGraph():
         return angle
 
     def load_from_json(self, input_path):
-        fin = open(input_path, 'r')
+        fin = open(os.path.join(input_path, 'graph.json'), 'r')
         j = json.load(fin)
         fin.close()
         self.vertices = j['vertices']
         self.adj_lists = j['edges']
+        for i in range(len(self.vertices)):
+            cloud = np.load(os.path.join(input_path, '{}_cloud.npz'.format(i)))['arr_0']
+            self.vertices[i]['cloud'] = cloud
+            img_front = imread(os.path.join(input_path, '{}_img_front.png'.format(i)))
+            self.vertices[i]['img_front'] = img_front
+            img_back = imread(os.path.join(input_path, '{}_img_back.png'.format(i)))
+            self.vertices[i]['img_back'] = img_back
+            self.index.add(np.array(self.vertices[i]['descriptor'])[np.newaxis, :])
 
     def add_vertex(self, global_pose_for_visualization, img_front, img_back, cloud=None):
         x, y, theta = global_pose_for_visualization
@@ -206,7 +217,7 @@ class TopologicalGraph():
             else:
                 cloud_msg.header.stamp = rospy.Time.now()
             cloud_msg.header.frame_id = 'base_link'
-            self.ref_cloud_publisher.publish(cloud_msg)
+            self.ref_cloud_pub.publish(cloud_msg)
         t2 = time.time()
         #print('Ref cloud publish time:', t2 - t1)
         batch = self._preprocess_input(input_data)
@@ -224,7 +235,7 @@ class TopologicalGraph():
         pred_tf = []
         pred_i_filtered = []
         for idx in pred_i:
-            print('Stamp {}, vertex id {}'.format(stamp, idx))
+            #print('Stamp {}, vertex id {}'.format(stamp, idx))
             if idx < 0:
                 continue
             t1 = time.time()
@@ -241,7 +252,7 @@ class TopologicalGraph():
             #print('ICP time:', t3 - t2)
             #if score_icp < 0.8:
             reg_scores.append(score)
-            #print('Registration score:', score)
+            #print('Registration score of vertex {} is {}'.format(idx, score))
             if score < self.registration_score_threshold:
                 pred_i_filtered.append(-1)
                 pred_tf.append([0, 0, 0, 0, 0, 0])
@@ -310,6 +321,9 @@ class TopologicalGraph():
                 return rel_pose
         return None
 
+    def get_edges_from(self, u):
+        return self.adj_lists[u]
+
     def get_path_with_length(self, u, v):
         # Initialize distances and previous nodes dictionaries
         distances = [float('inf')] * len(self.adj_lists)
@@ -347,6 +361,7 @@ class TopologicalGraph():
         return None, float('inf')
         
     def publish_graph(self):
+        # Publish graph for visualization
         graph_msg = MarkerArray()
         vertices_marker = Marker()
         #vertices_marker = ns = 'points_and_lines'
@@ -371,7 +386,7 @@ class TopologicalGraph():
         edges_marker.type = Marker.LINE_LIST
         edges_marker.header.frame_id = self.map_frame
         edges_marker.header.stamp = rospy.Time.now()
-        edges_marker.scale.x = 0.05
+        edges_marker.scale.x = 0.1
         edges_marker.color.r = 0
         edges_marker.color.g = 0
         edges_marker.color.b = 1
@@ -384,16 +399,33 @@ class TopologicalGraph():
                 edges_marker.points.append(Point(ux, uy, 0.05))
                 edges_marker.points.append(Point(vx, vy, 0.05))
         graph_msg.markers.append(edges_marker)
-        self.pub.publish(graph_msg)
+        self.graph_viz_pub.publish(graph_msg)
+
+        #publish graph for navigation
+        graph_msg = TopologicalGraphMessage()
+        edges = []
+        graph_msg.n_vertices = len(self.vertices)
+        for u in range(len(self.vertices)):
+            for v, rel_pose in self.adj_lists[u]:
+                edge = Edge()
+                edge.vertex_from = u
+                edge.vertex_to = v
+                edge.rel_pose = Point(rel_pose[0], rel_pose[1], 0)
+                edges.append(edge)
 
     def save_to_json(self, output_path):
+        if not os.path.exists(output_path):
+            os.mkdir(output_path)
         self.vertices = list(self.vertices)
         for i in range(len(self.vertices)):
             vertex_dict = self.vertices[i]
+            np.savez(os.path.join(output_path, '{}_cloud.npz'.format(i)), vertex_dict['cloud'])
+            imsave(os.path.join(output_path, '{}_img_front.png'.format(i)), vertex_dict['img_front'])
+            imsave(os.path.join(output_path, '{}_img_back.png'.format(i)), vertex_dict['img_back'])
             x, y, theta = vertex_dict['pose_for_visualization']
             descriptor = vertex_dict['descriptor']
-            self.vertices[i] = {'pose': (x, y, theta), 'descriptor': [float(x) for x in list(descriptor[0])]}
+            self.vertices[i] = {'pose_for_visualization': (x, y, theta), 'descriptor': [float(x) for x in list(descriptor[0])]}
         j = {'vertices': self.vertices, 'edges': self.adj_lists}
-        fout = open(output_path, 'w')
+        fout = open(os.path.join(output_path, 'graph.json'), 'w')
         json.dump(j, fout)
         fout.close()

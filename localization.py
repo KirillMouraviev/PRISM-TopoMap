@@ -52,7 +52,7 @@ class Localizer():
         if not os.path.exists(save_dir):
             os.mkdir(save_dir)
         np.savez(os.path.join(save_dir, 'ref_cloud.npz'), self.localized_cloud)
-        print('Mean of the ref cloud:', self.localized_cloud[:, :3].mean())
+        #print('Mean of the ref cloud:', self.localized_cloud[:, :3].mean())
         tf_data = []
         gt_pose_data = [[self.localized_x, self.localized_y, self.localized_theta]]
         for idx, tf in zip(vertex_ids, transforms):
