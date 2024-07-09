@@ -76,7 +76,6 @@ class Localizer():
     def publish_localization_results(self, vertex_id_first, vertex_ids_matched, vertex_ids_unmatched, rel_poses):
         # Publish top-1 PlaceRecognition vertex
         vertices_marker = Marker()
-        #vertices_marker = ns = 'points_and_lines'
         vertices_marker.type = Marker.POINTS
         vertices_marker.id = 0
         vertices_marker.header.frame_id = self.map_frame
@@ -255,16 +254,10 @@ class Localizer():
         vertex_ids_pr = [i for i in vertex_ids_pr if i >= 0]
         if len(vertex_ids_pr) == 0:
             self.n_loc_fails += 1
-        #for i, v in enumerate(self.graph.vertices):
         for i, idx in enumerate(vertex_ids_pr):
             v = self.graph.vertices[idx]
-            #if self.gt_map.in_sight(x, y, v[0], v[1]):
             vertex_ids.append(idx)
-            #print('Transform:', transforms[i])
             rel_poses.append(transforms[i, [3, 4, 2]])
-            #print('True dist:', dist)
-            #print('Descriptor dist:', pr_scores[i])
-            #print('Reg score:', reg_scores[i])
         rel_poses = np.array(rel_poses)
         freeze_msg = Bool()
         freeze_msg.data = False

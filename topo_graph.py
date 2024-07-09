@@ -33,7 +33,8 @@ class TopologicalGraph():
                  registration_score_threshold=0.5,
                  inline_registration_score_threshold=0.5,
                  floor_height=-1.0,
-                 ceil_height=2.0):
+                 ceil_height=2.0,
+                 path_to_save_logs='/home/kirill/prism_topomap_logs'):
         self.vertices = []
         self.adj_lists = []
         self.map_frame = map_frame
@@ -50,10 +51,12 @@ class TopologicalGraph():
         self.ceil_height = ceil_height
         self.device = torch.device('cuda:0')
         self.image_transform = DefaultHM3DImageTransform(train=False)
-        self.graph_save_path = '/home/kirill/TopoSLAM/toposlam_ws/src/simple_toposlam_model/test_husky_rosbag_minkloc3d_4/graph_data'
+        if not os.path.exists(path_to_save_logs):
+            os.mkdir(path_to_save_logs)
+        self.graph_save_path = os.path.join(path_to_save_logs, 'graph_data')
         if not os.path.exists(self.graph_save_path):
             os.mkdir(self.graph_save_path)
-        self.pr_results_save_path = '/home/kirill/TopoSLAM/toposlam_ws/src/simple_toposlam_model/test_husky_rosbag_minkloc3d_4/place_recognition_data'
+        self.pr_results_save_path = os.path.join(path_to_save_logs, 'place_recognition_data')
         if not os.path.exists(self.pr_results_save_path):
             os.mkdir(self.pr_results_save_path)
         self.global_pose_for_visualization = None
@@ -98,13 +101,9 @@ class TopologicalGraph():
         self.adj_lists.append([])
         if cloud is not None:
             img_front_transformed = self.image_transform(img_front)
-            #print(img_front_transformed.shape, img_front_transformed.min(), img_front_transformed.mean(), img_front_transformed.max())
             img_back_transformed = self.image_transform(img_back)
-            #print(img_back_transformed.shape, img_back_transformed.min(), img_back_transformed.mean(), img_back_transformed.max())
-            #print('Transformed image shape:', img_front_transformed.shape)
             img_front_tensor = torch.Tensor(img_front).cuda()
             img_back_tensor = torch.Tensor(img_back).cuda()
-            #print('Img front min and max:', img_front_transformed.min(), img_front_transformed.max())
             img_front_tensor = torch.permute(img_front_tensor, (2, 0, 1))
             img_back_tensor = torch.permute(img_back_tensor, (2, 0, 1))
             input_data = {
@@ -117,7 +116,6 @@ class TopologicalGraph():
             descriptor = self.place_recognition_model(batch)["final_descriptor"].detach().cpu().numpy()
             if len(descriptor.shape) == 1:
                 descriptor = descriptor[np.newaxis, :]
-            #print('X y theta:', x, y, theta)
             vertex_dict = {
                 'stamp': rospy.Time.now(),
                 'pose_for_visualization': [x, y, theta],
@@ -127,7 +125,6 @@ class TopologicalGraph():
                 'descriptor': descriptor
             }
             self.vertices.append(vertex_dict)
-            #print('Descriptor shape:', descriptor.shape)
             self.index.add(descriptor)
         return len(self.vertices) - 1
 
@@ -224,7 +221,6 @@ class TopologicalGraph():
         pred_tf = []
         pred_i_filtered = []
         for idx in pred_i:
-            print('Stamp {}, vertex id {}'.format(stamp, idx))
             if idx < 0:
                 continue
             t1 = time.time()
@@ -239,7 +235,6 @@ class TopologicalGraph():
             #print('Registration time:', t2 - t1)
             #t3 = time.time()
             #print('ICP time:', t3 - t2)
-            #if score_icp < 0.8:
             reg_scores.append(score)
             #print('Registration score:', score)
             if score < self.registration_score_threshold:

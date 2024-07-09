@@ -71,7 +71,8 @@ class TopoSLAMModel():
                                       map_frame=self.map_frame,
                                       registration_score_threshold=self.registration_score_threshold,
                                       inline_registration_score_threshold=self.inline_registration_score_threshold,
-                                      floor_height=self.floor_height, ceil_height=self.ceil_height)
+                                      floor_height=self.floor_height, ceil_height=self.ceil_height,
+                                      path_to_save_logs=self.path_to_save_logs)
         self.localizer = Localizer(self.graph, self.gt_map, map_frame=self.map_frame, top_k=self.top_k)
         self.init_publishers_and_subscribers(self.config)
 
@@ -113,6 +114,8 @@ class TopoSLAMModel():
             self.gt_map = None
         self.map_frame = visualization_config['map_frame']
         self.publish_tf_from_odom = visualization_config['publish_tf_from_odom']
+        # Logs
+        self.path_to_save_logs = config['logs']['path_to_save']
 
     def init_publishers_and_subscribers(self, config):
         input_config = config['input']
@@ -198,7 +201,6 @@ class TopoSLAMModel():
     def check_path_condition(self, u, v):
         path, path_length = self.graph.get_path_with_length(u, v)
         #print('Path:', path)
-        #print('Path length:', path_length)
         #print('Node positions:')
         #for v in path:
         #    print(self.graph.get_vertex(v)['pose_for_visualization'])
@@ -210,12 +212,9 @@ class TopoSLAMModel():
             return True
         #print('Path length to vertex {} is {}'.format(v, path_length))
         rel_pose = [0, 0, 0]
-        #for i in range(1, len(path)):
-        #    rel_pose = apply_pose_shift(rel_pose, *self.graph.get_edge(path[i - 1], path[i]))
-        true_rel_pose = get_rel_pose(*self.last_vertex['pose_for_visualization'], 
-                                        *self.graph.get_vertex(v)['pose_for_visualization'])
-        #print('True rel pose:', true_rel_pose)
-        #print('Rel pose along path:', rel_pose_along_path)
+        for i in range(1, len(path)):
+            rel_pose = apply_pose_shift(rel_pose, *self.graph.get_edge(path[i - 1], path[i]))
+        print('Rel pose along path:', rel_pose_along_path)
         straight_length = np.sqrt(rel_pose_along_path[0] ** 2 + rel_pose_along_path[1] ** 2)
         #print('Straight length:', straight_length)
         if path_length > 3 * straight_length:#straight_length < 8:
@@ -307,7 +306,6 @@ class TopoSLAMModel():
         if len(self.rgb_buffer_back) == 0:
             print('No back image available!')
             return None, None, None, None
-        #print('Timestamp:', timestamp)
         eps = 0.1
         i = 0
         while i < len(self.poses) and self.poses[i][0] < timestamp:
@@ -318,22 +316,19 @@ class TopoSLAMModel():
         k = 0
         while k < len(self.rgb_buffer_back) and self.rgb_buffer_back[k][0] < timestamp - eps:
             k += 1
-        #print('Last pose stamp:', self.poses[-1][0])
-        #print('Last front image stamp:', self.rgb_buffer_front[-1][0])
-        #print('Last back image stamp:', self.rgb_buffer_back[-1][0])
         if i == 0:
             if self.poses[0][0] - timestamp > 0.2 or len(self.rgb_buffer_front) == 0 or len(self.rgb_buffer_back) == 0:
-                #print('No sync pose available!')
+                print('No sync pose available!')
                 return None, None, None, None
             return self.poses[0][1:], self.poses[0][1:], self.rgb_buffer_front[j][1], self.rgb_buffer_back[k][1]
         if i == len(self.poses):
-            #print('No sync pose available!')
+            print('No sync pose available!')
             return None, None, None, None
         if j == len(self.rgb_buffer_front):
-            #print('No sync front image available!')
+            print('No sync front image available!')
             return None, None, None, None
         if k == len(self.rgb_buffer_back):
-            #print('No sync back image available!')
+            print('No sync back image available!')
             return None, None, None, None
         alpha = (timestamp - self.poses[i - 1][0]) / (self.poses[i][0] - self.poses[i - 1][0])
         pose_left = np.array(self.poses[i - 1][1:])
@@ -375,9 +370,6 @@ class TopoSLAMModel():
             self.rel_poses_stamped.append([timestamp] + self.rel_pose_of_vcur)
         if verbose:
             print('Timestamp diff:', timestamp - self.rel_poses_stamped[0][0])
-            #print('Rel poses stamped:')
-            #for rel_pose in self.rel_poses_stamped:
-            #    print(rel_pose[0] - self.rel_poses_stamped[0][0], rel_pose[1:])
         j = 0
         while j < len(self.rel_poses_stamped) and self.rel_poses_stamped[j][0] < timestamp:
             j += 1
@@ -417,7 +409,7 @@ class TopoSLAMModel():
         if len(pose_diffs) > 0 and min(pose_diffs) < 3 and min(pose_diffs) < dist_to_vcur:
             nearest_vertex_id = neighbours[np.argmin(pose_diffs)]
             pose_on_edge = edge_poses[np.argmin(pose_diffs)]
-            print('Pose on edge:', pose_on_edge)
+            #print('Pose on edge:', pose_on_edge)
             old_rel_pose_of_vcur = self.rel_pose_of_vcur
             rel_pose_to_vertex = get_rel_pose(*self.rel_pose_of_vcur, *pose_on_edge)
             cur_cloud_transformed = transform_pcd(cur_cloud, *rel_pose_to_vertex)
@@ -448,11 +440,11 @@ class TopoSLAMModel():
                 self.rel_pose_of_vcur = self.graph.inverse_transform(*rel_pose_to_vertex)
                 if self.rel_pose_vcur_to_loc is not None:
                     self.rel_pose_vcur_to_loc = apply_pose_shift(self.graph.inverse_transform(*pose_on_edge), *self.rel_pose_vcur_to_loc)
-                    print('True rel pose vcur to loc:', get_rel_pose(*self.last_vertex['pose_for_visualization'], *self.localization_pose))
-                    print('New rel pose vcur to loc:', self.rel_pose_vcur_to_loc)
-                print('True new rel pose:', get_rel_pose(*self.last_vertex['pose_for_visualization'], 
-                                                     *self.odom_pose))
-                print('New rel pose of vcur:', self.rel_pose_of_vcur)
+                    #print('True rel pose vcur to loc:', get_rel_pose(*self.last_vertex['pose_for_visualization'], *self.localization_pose))
+                    #print('New rel pose vcur to loc:', self.rel_pose_vcur_to_loc)
+                #print('True new rel pose:', get_rel_pose(*self.last_vertex['pose_for_visualization'], 
+                                                     #*self.odom_pose))
+                #print('New rel pose of vcur:', self.rel_pose_of_vcur)
                 self.rel_poses_stamped = [[self.current_stamp] + self.rel_pose_of_vcur]
             else:
                 print('Failed to match current cloud to vertex {}!'.format(nearest_vertex_id))
@@ -526,10 +518,6 @@ class TopoSLAMModel():
         return False
 
     def add_new_vertex(self, timestamp, global_pose_for_visualization, img_front, img_back, cur_cloud, vertex_ids, rel_poses):
-        #global_localized_pose_for_visualization = [self.localizer.localized_x, self.localizer.localized_y, self.localizer.localized_theta]
-        #new_vertex_id = self.graph.add_vertex(global_localized_pose_for_visualization,
-        #                                        self.localizer.localized_img_front, self.localizer.localized_img_back,
-        #                                        self.localizer.localized_cloud)
         new_vertex_id = self.graph.add_vertex(global_pose_for_visualization,
                                                 img_front, img_back,
                                                 cur_cloud)
@@ -627,25 +615,12 @@ class TopoSLAMModel():
         self.mutex.release()
 
     def update_by_iou(self, global_pose_for_visualization, img_front, img_back, cur_cloud, timestamp):
-        #print('Cnt:', self.cnt)
-        #print('Global pose:', global_pose_for_visualization)
-        #print('Prev pose:', self.prev_pose_for_visualization)
-        #if self.rel_pose_of_vcur is not None and self.last_vertex is not None:
-            #print('Last vertex pose:', self.last_vertex['pose_for_visualization'])
-            #print('Rel pose of vcur:', self.rel_pose_of_vcur)
-            #print('True rel pose:', get_rel_pose(*self.last_vertex['pose_for_visualization'], *global_pose_for_visualization))
         if self.publish_gt_map_flag:
             self.publish_gt_map()
         t1 = rospy.Time.now().to_sec()
         if cur_cloud is None:
             print('No point cloud received!')
             return
-        #if self.prev_pose_for_visualization is None:
-        #    self.prev_pose_for_visualization = global_pose_for_visualization
-        #    self.prev_rel_pose = [0, 0, 0]
-        #    self.prev_img_front = img_front
-        #    self.prev_img_back = img_back
-        #    self.prev_cloud = cur_cloud
         if self.last_vertex is None:
             print('Add new vertex at start')
             self.add_new_vertex(timestamp, global_pose_for_visualization, 
@@ -691,11 +666,6 @@ class TopoSLAMModel():
             self.mutex.release()
         self.graph.publish_graph()
         self.publish_last_vertex()
-        #self.prev_pose_for_visualization = global_pose_for_visualization
-        #self.prev_rel_pose = self.rel_pose_of_vcur
-        #self.prev_img_front = img_front
-        #self.prev_img_back = img_back
-        #self.prev_cloud = cur_cloud
 
     def pcd_callback(self, msg):
         dt = (rospy.Time.now() - msg.header.stamp).to_sec()
@@ -716,20 +686,15 @@ class TopoSLAMModel():
             rel_x, rel_y, rel_theta = get_rel_pose(*self.odom_pose, x, y, theta)
         else:
             rel_x, rel_y, rel_theta = x, y, theta
-        #print('Pose shift:', rel_x, rel_y, rel_theta)
         self.odom_pose = [x, y, theta]
         if self.rel_pose_of_vcur is None:
             print('Rel pose of vcur is None, initialize it as ({}, {}, {})'.format(rel_x, rel_y, rel_theta))
             self.rel_pose_of_vcur = [rel_x, rel_y, rel_theta]
         else:
             self.rel_pose_of_vcur = apply_pose_shift(self.rel_pose_of_vcur, rel_x, rel_y, rel_theta)
-            #print('From pcd callback: True pose:', get_rel_pose(*self.last_vertex['pose_for_visualization'],
-            #                                                    *self.odom_pose))
-            #print('Rel pose of vcur:', self.rel_pose_of_vcur)
 
         self.current_stamp = msg.header.stamp
         self.rel_poses_stamped.append([msg.header.stamp] + self.rel_pose_of_vcur)
-        #print('Rel pose of vcur:', self.rel_pose_of_vcur)
 
         cur_cloud = get_xyz_coords_from_msg(msg, self.pcd_fields, self.pcd_rotation)
         self.localizer.global_pose_for_visualization = cur_global_pose

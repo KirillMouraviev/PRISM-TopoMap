@@ -44,3 +44,5 @@ visualization:
   publish_gt_map: true
   map_frame: map
   publish_tf_from_odom: true
+logs:
+  path_to_save: /home/kirill/TopoSLAM/toposlam_ws/src/prism-topomap/logs/test_habitat_minkloc3d_1
