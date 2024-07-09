@@ -23,6 +23,7 @@ import open3d as o3d
 import open3d.pipelines.registration as registration
 from toposlam_msgs.msg import Edge
 from toposlam_msgs.msg import TopologicalGraph as TopologicalGraphMessage
+from utils import get_occupancy_grid, get_rel_pose
 
 
 class TopologicalGraph():
@@ -95,8 +96,8 @@ class TopologicalGraph():
         self.vertices = j['vertices']
         self.adj_lists = j['edges']
         for i in range(len(self.vertices)):
-            cloud = np.load(os.path.join(input_path, '{}_cloud.npz'.format(i)))['arr_0']
-            self.vertices[i]['cloud'] = cloud
+            grid = np.load(os.path.join(input_path, '{}_grid.npz'.format(i)))['arr_0']
+            self.vertices[i]['grid'] = grid
             img_front = imread(os.path.join(input_path, '{}_img_front.png'.format(i)))
             self.vertices[i]['img_front'] = img_front
             img_back = imread(os.path.join(input_path, '{}_img_back.png'.format(i)))
@@ -128,13 +129,14 @@ class TopologicalGraph():
             descriptor = self.place_recognition_model(batch)["final_descriptor"].detach().cpu().numpy()
             if len(descriptor.shape) == 1:
                 descriptor = descriptor[np.newaxis, :]
+            grid = get_occupancy_grid(cloud[:, :3])
             #print('X y theta:', x, y, theta)
             vertex_dict = {
                 'stamp': rospy.Time.now(),
                 'pose_for_visualization': [x, y, theta],
                 'img_front': img_front,
                 'img_back': img_back,
-                'cloud': cloud,
+                'grid': grid,
                 'descriptor': descriptor
             }
             self.vertices.append(vertex_dict)
@@ -152,7 +154,7 @@ class TopologicalGraph():
         np.savetxt(os.path.join(save_dir, 'pose_stamped.txt'), pose_stamped)
         imsave(os.path.join(save_dir, 'img_front.png'), vertex_dict['img_front'])
         imsave(os.path.join(save_dir, 'img_back.png'), vertex_dict['img_back'])
-        np.savez(os.path.join(save_dir, 'cloud.npz'), vertex_dict['cloud'])
+        np.savez(os.path.join(save_dir, 'grid.npz'), vertex_dict['grid'])
         np.savetxt(os.path.join(save_dir, 'descriptor.txt'), vertex_dict['descriptor'])
         edges = []
         for v, rel_pose in self.adj_lists[vertex_id]:
@@ -166,7 +168,7 @@ class TopologicalGraph():
             os.mkdir(save_dir)
         imsave(os.path.join(save_dir, 'img_front.png'), state_dict['img_front'])
         imsave(os.path.join(save_dir, 'img_back.png'), state_dict['img_back'])
-        np.savez(os.path.join(save_dir, 'cloud.npz'), state_dict['cloud'])
+        np.savez(os.path.join(save_dir, 'grid.npz'), state_dict['grid'])
         np.savetxt(os.path.join(save_dir, 'descriptor.txt'), state_dict['descriptor'])
         np.savetxt(os.path.join(save_dir, 'vertex_ids.txt'), vertex_ids)
         gt_pose_data = [state_dict['pose_for_visualization']]
@@ -174,8 +176,6 @@ class TopologicalGraph():
         for idx, tf in zip(vertex_ids, transforms):
             if idx >= 0:
                 vertex_dict = self.vertices[idx]
-                #print('GT x, y, theta:', x, y, theta)
-                #np.savetxt(os.path.join(save_dir, 'cand_cloud_{}.txt'.format(idx)), cloud)
                 if tf is not None:
                     tf_data.append([idx] + list(tf))
                 else:
@@ -185,6 +185,27 @@ class TopologicalGraph():
         np.savetxt(os.path.join(save_dir, 'transforms.txt'), np.array(tf_data))
         np.savetxt(os.path.join(save_dir, 'pr_scores.txt'), np.array(pr_scores))
         np.savetxt(os.path.join(save_dir, 'reg_scores.txt'), np.array(reg_scores))
+
+    def get_tf_matrix(self, transform_for_grid):
+        trans_i, trans_j, rot_angle = transform_for_grid
+        print('Trans i trans j rot angle:', trans_i, trans_j, rot_angle)
+        plus8 = np.eye(4)
+        max_range = 18
+        grid_size = 0.1
+        plus8[0, 3] = max_range# + 1
+        plus8[1, 3] = max_range# + 1
+        minus8 = np.eye(4)
+        minus8[0, 3] = -max_range# - 1
+        minus8[1, 3] = -max_range# - 1
+        tf_matrix = np.array([
+            [np.cos(rot_angle), np.sin(rot_angle), 0, trans_i * grid_size],
+            [-np.sin(rot_angle), np.cos(rot_angle), 0, trans_j * grid_size],
+            [0,                  0,                 1, 0],
+            [0,                  0,                 0, 1]
+        ])
+        tf_matrix = minus8 @ tf_matrix @ plus8
+        print('Translation from tf matrix:', tf_matrix[:, 3])
+        return tf_matrix
 
     def get_k_most_similar(self, img_front, img_back, cloud, stamp, k=1):
         t1 = time.time()
@@ -221,6 +242,7 @@ class TopologicalGraph():
         t2 = time.time()
         #print('Ref cloud publish time:', t2 - t1)
         batch = self._preprocess_input(input_data)
+        grid = get_occupancy_grid(cloud)
         t3 = time.time()
         #print('Preprocessing time:', t3 - t2)
         descriptor = self.place_recognition_model(batch)["final_descriptor"].detach().cpu().numpy()
@@ -232,6 +254,7 @@ class TopologicalGraph():
         #print('Place recognition time:', t4 - t3)
         pr_scores = dists[0]
         pred_i = pred_i[0]
+        print('Pred i:', pred_i)
         pred_tf = []
         pred_i_filtered = []
         for idx in pred_i:
@@ -240,12 +263,12 @@ class TopologicalGraph():
                 continue
             t1 = time.time()
             cand_vertex_dict = self.vertices[idx]
-            cand_cloud = cand_vertex_dict['cloud']
-            cand_cloud_tensor = torch.Tensor(cand_cloud[:, :3]).to(self.device)
-            ref_cloud_tensor = torch.Tensor(cloud[:, :3]).to(self.device)
+            cand_grid = cand_vertex_dict['grid']
+            cand_grid_tensor = torch.Tensor(cand_grid).to(self.device)
+            ref_grid_tensor = torch.Tensor(grid).to(self.device)
             start_time = time.time()
             save_dir = os.path.join(self.pr_results_save_path, str(stamp))
-            tf_matrix, score = self.registration_pipeline.infer(ref_cloud_tensor, cand_cloud_tensor, save_dir=save_dir)
+            transform, score = self.registration_pipeline.infer(ref_grid_tensor, cand_grid_tensor, save_dir=save_dir)
             t2 = time.time()
             #print('Registration time:', t2 - t1)
             #t3 = time.time()
@@ -257,6 +280,7 @@ class TopologicalGraph():
                 pred_i_filtered.append(-1)
                 pred_tf.append([0, 0, 0, 0, 0, 0])
             else:
+                tf_matrix = self.get_tf_matrix(transform)
                 pred_i_filtered.append(idx)
                 tf_rotation = Rotation.from_matrix(tf_matrix[:3, :3]).as_rotvec()
                 tf_translation = tf_matrix[:3, 3]
@@ -270,24 +294,27 @@ class TopologicalGraph():
             'pose_for_visualization': self.global_pose_for_visualization,
             'img_front': img_front,
             'img_back': img_back,
-            'cloud': cloud,
+            'grid': grid,
             'descriptor': descriptor
         }
         self.save_localization_results(state_dict, pred_i, pred_tf, pr_scores, reg_scores)
         return pred_i, pred_i_filtered, np.array(pred_tf), pr_scores, reg_scores
 
-    def get_transform_to_vertex(self, vertex_id, cloud):
-        cand_cloud = self.vertices[vertex_id]['cloud']
-        cand_cloud_tensor = torch.Tensor(cand_cloud[:, :3]).to(self.device)
-        ref_cloud_tensor = torch.Tensor(cloud[:, :3]).to(self.device)
-        tf_matrix, score = self.inline_registration_pipeline.infer(ref_cloud_tensor, cand_cloud_tensor)
+    def get_transform_to_vertex(self, vertex_id, grid):
+        return get_rel_pose(*self.global_pose_for_visualization, *self.vertices[vertex_id]['pose_for_visualization'])
+        """
+        cand_grid = self.vertices[vertex_id]['grid']
+        cand_grid_tensor = torch.Tensor(cand_grid).to(self.device)
+        ref_grid_tensor = torch.Tensor(grid).to(self.device)
+        transform, score = self.inline_registration_pipeline.infer(ref_grid_tensor, cand_grid_tensor)
         if score > self.inline_registration_score_threshold:
-            tf_rotation = Rotation.from_matrix(tf_matrix[:3, :3]).as_rotvec()
-            tf_translation = tf_matrix[:3, 3]
-            x, y, _ = tf_translation
-            _, __, theta = tf_rotation
+            tf_matrix = self.get_tf_matrix(transform)
+            x = tf_matrix[0, 3]
+            y = tf_matrix[1, 3]
+            _, __, theta = Rotation.from_matrix(tf_matrix[:3, :3]).as_rotvec()
             return x, y, theta
         return None, None, None
+        """
 
     def inverse_transform(self, x, y, theta):
         x_inv = -x * np.cos(theta) - y * np.sin(theta)
@@ -326,6 +353,7 @@ class TopologicalGraph():
 
     def get_path_with_length(self, u, v):
         # Initialize distances and previous nodes dictionaries
+        start_time = time.time()
         distances = [float('inf')] * len(self.adj_lists)
         prev_nodes = [None] * len(self.adj_lists)
         # Set distance to start node as 0
@@ -343,6 +371,7 @@ class TopologicalGraph():
                     cur = prev_nodes[cur]
                     path.append(cur)
                 path = path[::-1]
+                #print('Path planning time:', time.time() - start_time)
                 return path, distances[v]
             # If current node has already been visited, skip it
             if current_distance > distances[current_node]:
@@ -358,6 +387,7 @@ class TopologicalGraph():
                     prev_nodes[neighbour] = current_node
                     # Add neighbour to heap with updated distance
                     heapq.heappush(heap, (tentative_distance, neighbour))
+        #print('Path planning time:', time.time() - start_time)
         return None, float('inf')
         
     def publish_graph(self):
@@ -419,7 +449,7 @@ class TopologicalGraph():
         self.vertices = list(self.vertices)
         for i in range(len(self.vertices)):
             vertex_dict = self.vertices[i]
-            np.savez(os.path.join(output_path, '{}_cloud.npz'.format(i)), vertex_dict['cloud'])
+            np.savez(os.path.join(output_path, '{}_grid.npz'.format(i)), vertex_dict['grid'])
             imsave(os.path.join(output_path, '{}_img_front.png'.format(i)), vertex_dict['img_front'])
             imsave(os.path.join(output_path, '{}_img_back.png'.format(i)), vertex_dict['img_back'])
             x, y, theta = vertex_dict['pose_for_visualization']

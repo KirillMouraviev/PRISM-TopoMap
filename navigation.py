@@ -43,6 +43,7 @@ class TopoSLAMNavigationServer:
         self.server = actionlib.SimpleActionServer('move_to_point', TopoSLAMNavigationAction, self.execute, False )
         self.target_node_publisher = rospy.Publisher('/target_node', Int32, latch=True, queue_size=100)
         self.local_planning_task_publisher = rospy.Publisher('/local_planning_task', Float32MultiArray, latch=True, queue_size=100)
+        self.goal_publisher = rospy.Publisher('/move_base_simple/goal', PoseStamped, latch=True, queue_size=100)
         self.rel_x, self.rel_y, self.rel_theta = None, None, None
         self.last_vertex_id = None
         self.topological_path = []
@@ -68,26 +69,27 @@ class TopoSLAMNavigationServer:
                                                                           msg.pose.orientation.z])
 
     def topological_path_callback(self, msg):
-        print('Topological path received')
+        #print('Topological path received')
         self.topological_path = list(msg.nodes)
         if len(self.topological_path) == 0:
-            print('EMPTY PATH IN TOPOLOGICAL GRAPH!!!')
+            #print('EMPTY PATH IN TOPOLOGICAL GRAPH!!!')
             self.rel_poses = []
         else:
             assert self.topological_path[-1] == self.target_vertex_id
             self.rel_poses = [(pt.x, pt.y, pt.z) for pt in msg.rel_poses]
 
     def local_path_callback(self, msg):
-        print('Local path received')
+        #print('Local path received')
         self.local_path = [[pose.pose.position.x, pose.pose.position.y] for pose in msg.poses]
 
     def publish_topological_planning_task(self):
         target_node_msg = Int32()
         target_node_msg.data = self.target_vertex_id
         self.target_node_publisher.publish(target_node_msg)
-        print('Topological task published')
+        #print('Topological task published')
 
     def publish_local_planning_task(self):
+        #print('Publish local path planning task')
         if self.rel_x is None:
             print('Waiting for rel pose from topoSLAM...')
             return
@@ -95,6 +97,7 @@ class TopoSLAMNavigationServer:
             target_x, target_y = self.target_rel_x, self.target_rel_y
         else:
             if len(self.rel_poses) == 0:
+                print('No rel poses')
                 return
             target_x, target_y, target_theta = self.rel_poses[0]
         task_msg = Float32MultiArray()
@@ -103,22 +106,46 @@ class TopoSLAMNavigationServer:
         task_msg.layout.dim[0].stride = 4
         task_msg.data = [self.rel_x, self.rel_y, target_x, target_y]
         self.local_planning_task_publisher.publish(task_msg)
-        print('Local planning task published')
+        """
+        goal_msg = PoseStamped()
+        goal_msg.header.stamp = rospy.Time.now()
+        goal_msg.header.frame_id = "map"
+        try:
+            pos, quat = self.tf_listener.lookupTransform('map', 'last_vertex', 
+                                self.tf_listener.getLatestCommonTime('map', 'last_vertex'))
+            _, __, angle = tf.transformations.euler_from_quaternion(quat)
+            x, y, z = pos
+            print('Transform x y angle:', x, y, angle)
+        except:
+            print('NO TRANSFORM FROM MAP TO LAST VERTEX!!!')
+            return
+        print('Target x and y:', target_x, target_y)
+        target_x_in_map_frame = target_x * np.cos(-angle) + target_y * np.sin(-angle) + x
+        target_y_in_map_frame = -target_x * np.sin(-angle) + target_y * np.cos(-angle) + y
+        if len(self.topological_path) >= 2:
+            target_x_in_map_frame, target_y_in_map_frame, _  = self.graph.get_vertex(self.topological_path[1])['pose_for_visualization']
+        print('Target x and y in map frame:', target_x_in_map_frame, target_y_in_map_frame)
+        goal_msg.pose.position.x = target_x_in_map_frame
+        goal_msg.pose.position.y = target_y_in_map_frame
+        self.goal_publisher.publish(goal_msg)
+        """
+        #print('Local planning task published')
 
     #def control_status_callback(self, msg):
     #    if msg.data == 'reached':
     #        self.goal_reached = True
     def goal_reached(self):
+        print('Topological path:', self.topological_path)
         if self.last_vertex_id is None:
-            print('Waiting for topoSLAM callback...')
+            #print('Waiting for topoSLAM callback...')
             return False
         if self.target_vertex_id == self.last_vertex_id:
-            print('We are in the target location!')
+            #print('We are in the target location!')
             d = np.sqrt((self.rel_x - self.target_rel_x) ** 2 + (self.rel_y - self.target_rel_y) ** 2)
-            print('Distance to goal:', d)
+            #print('Distance to goal:', d)
             return (d < self.tolerance)
         if len(self.topological_path) == 2:
-            print('The next location is the target!')
+            #print('The next location is the target!')
             rel_pose_vcur_to_goal = apply_pose_shift(self.rel_poses[0], self.target_rel_x, self.target_rel_y, 0)
             d = np.sqrt((self.rel_x - rel_pose_vcur_to_goal[0]) ** 2 + (self.rel_y - rel_pose_vcur_to_goal[1]) ** 2)
             print('Distance to goal:', d)
@@ -126,6 +153,7 @@ class TopoSLAMNavigationServer:
         return False
 
     def wait_until_come(self):
+        print('Wait until come')
         start_time = time.time()
         n_path_fails = 0
         succeeded = False

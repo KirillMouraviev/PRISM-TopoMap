@@ -2,7 +2,8 @@ from hydra.utils import instantiate
 from omegaconf import OmegaConf
 import torch
 import faiss
-from opr.pipelines.registration import PointcloudRegistrationPipeline, RansacGlobalRegistrationPipeline, Feature2DGlobalRegistrationPipeline
+from opr.pipelines.registration import PointcloudRegistrationPipeline, RansacGlobalRegistrationPipeline
+from opr.pipelines.registration.occupancy_grid import Feature2DGlobalRegistrationPipeline
 from opr.models.place_recognition import MinkLoc3D
 
 def get_place_recognition_model(config):
@@ -36,7 +37,7 @@ def get_registration_model(config):
                                                    detector_type=config['detector_type'], 
                                                    min_matches=config['min_matches'],
                                                    outlier_thresholds=config['outlier_thresholds'],
-                                                   max_range=config['max_point_cloud_range'],
+                                                   #max_range=config['max_point_cloud_range'],
                                                    save_dir='/home/kirill/TopoSLAM/OpenPlaceRecognition/test_registration')
     elif reg_model_type == 'geotransformer':
         REGISTRATION_MODEL_CONFIG_PATH = config['model_config_path']

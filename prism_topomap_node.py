@@ -153,6 +153,7 @@ class TopoSLAMModel():
         self.path_marker_publisher = rospy.Publisher('/topological_path_marker', Marker, latch=True, queue_size=100)
         self.local_grid_publisher = rospy.Publisher('/local_grid', OccupancyGrid, latch=True, queue_size=100)
         self.goal_subscriber = rospy.Subscriber('/target_node', Int32, self.goal_callback)
+        self.goal_pub = rospy.Publisher('/move_base_simple/goal', PoseStamped, latch=True, queue_size=100)
 
     def publish_gt_map(self):
         gt_map_msg = OccupancyGrid()
@@ -182,7 +183,6 @@ class TopoSLAMModel():
         self.poses.append([msg.header.stamp.to_sec(), x, y, theta])
 
     def odom_callback(self, msg):
-        #print('Odom callback')
         x, y = msg.pose.pose.position.x, msg.pose.pose.position.y
         orientation = msg.pose.pose.orientation
         _, __, theta = tf.transformations.euler_from_quaternion([orientation.x, orientation.y, orientation.z, orientation.w])
@@ -195,13 +195,11 @@ class TopoSLAMModel():
         self.poses.append([msg.header.stamp.to_sec(), x, y, theta])
 
     def front_image_callback(self, msg):
-        #print('Front image callback')
         image = self.cv_bridge.imgmsg_to_cv2(msg)[:, :, :3]
         #image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
         self.rgb_buffer_front.append([msg.header.stamp.to_sec(), image])
 
     def back_image_callback(self, msg):
-        #print('Back image callback')
         image = self.cv_bridge.imgmsg_to_cv2(msg)[:, :, :3]
         self.rgb_buffer_back.append([msg.header.stamp.to_sec(), image])
 
@@ -209,7 +207,7 @@ class TopoSLAMModel():
         u = self.last_vertex_id
         v = msg.data
         if u is None:
-            print('Not initialized! Cannot plan path to goal!')
+            #print('Not initialized! Cannot plan path to goal!')
             return
         path, length = self.graph.get_path_with_length(u, v)
         if path is None:
@@ -249,31 +247,31 @@ class TopoSLAMModel():
             pt = Point(pos[0], pos[1], 0.2)
             path_marker_msg.points.append(pt)
         self.path_marker_publisher.publish(path_marker_msg)
+        # Publish goal msg
+        if len(path) >= 2:
+            goal_msg = PoseStamped()
+            goal_msg.header.stamp = rospy.Time.now()
+            goal_msg.header.frame_id = 'map'
+            goal_msg.pose.position.x, goal_msg.pose.position.y, _ = self.graph.get_vertex(path[1])['pose_for_visualization']
+            self.goal_pub.publish(goal_msg)
 
     def check_path_condition(self, u, v):
         path, path_length = self.graph.get_path_with_length(u, v)
         if path is None:
             return True
-        #print('Path:', path)
-        #print('Path length:', path_length)
-        #print('Node positions:')
-        #for v in path:
-        #    print(self.graph.get_vertex(v)['pose_for_visualization'])
+        print('Path:', path)
+        print('Path length:', path_length)
+        print('Node positions:')
+        for v in path:
+            print(self.graph.get_vertex(v)['pose_for_visualization'])
         rel_pose_along_path = [0, 0, 0]
         for i in range(1, len(path)):
             rel_pose_along_path = apply_pose_shift(rel_pose_along_path, *self.graph.get_edge(path[i - 1], path[i]))
         if path_length < 8:
             return True
-        #print('Path length to vertex {} is {}'.format(v, path_length))
-        rel_pose = [0, 0, 0]
-        #for i in range(1, len(path)):
-        #    rel_pose = apply_pose_shift(rel_pose, *self.graph.get_edge(path[i - 1], path[i]))
-        #true_rel_pose = get_rel_pose(*self.last_vertex['pose_for_visualization'], 
-        #                                *self.graph.get_vertex(v)['pose_for_visualization'])
-        #print('True rel pose:', true_rel_pose)
-        #print('Rel pose along path:', rel_pose_along_path)
+        print('Path length to vertex {} is {}'.format(v, path_length))
         straight_length = np.sqrt(rel_pose_along_path[0] ** 2 + rel_pose_along_path[1] ** 2)
-        #print('Straight length:', straight_length)
+        print('Straight length:', straight_length)
         if path_length > 3 * straight_length:#straight_length < 8:
             return True
         return False
@@ -283,7 +281,6 @@ class TopoSLAMModel():
         loop_closure_msg = MarkerArray()
         vertices_marker = Marker()
         x, y, _ = global_pose_for_visualization
-        #vertices_marker = ns = 'points_and_lines'
         vertices_marker.type = Marker.POINTS
         vertices_marker.id = 0
         vertices_marker.header.frame_id = self.map_frame
@@ -365,7 +362,6 @@ class TopoSLAMModel():
         if len(self.rgb_buffer_back) == 0:
             print('No back image available!')
             return None, None, None, None
-        #print('Timestamp:', timestamp)
         eps = 0.1
         i = 0
         while i < len(self.poses) and self.poses[i][0] < timestamp:
@@ -376,9 +372,6 @@ class TopoSLAMModel():
         k = 0
         while k < len(self.rgb_buffer_back) and self.rgb_buffer_back[k][0] < timestamp - eps:
             k += 1
-        #print('Last pose stamp:', self.poses[-1][0])
-        #print('Last front image stamp:', self.rgb_buffer_front[-1][0])
-        #print('Last back image stamp:', self.rgb_buffer_back[-1][0])
         if i == 0:
             if self.poses[0][0] - timestamp > 0.2 or len(self.rgb_buffer_front) == 0 or len(self.rgb_buffer_back) == 0:
                 #print('No sync pose available!')
@@ -401,9 +394,7 @@ class TopoSLAMModel():
                self.rgb_buffer_front[j][1], self.rgb_buffer_back[k][1]
 
     def is_in_sight(self):
-        cloud = self.last_vertex['cloud']
-        grid = get_occupancy_grid(cloud)
-        grid = raycast(grid)
+        grid = self.last_vertex['grid']
         x, y, theta = self.rel_pose_of_vcur
         if abs(x) > 8 or abs(y) > 8:
             return False
@@ -454,22 +445,22 @@ class TopoSLAMModel():
         save_dir = os.path.join('/home/kirill/test_local_grid', str(self.local_grid_cnt))
         if not os.path.exists(save_dir):
             os.mkdir(save_dir)
-        local_cloud = self.last_vertex['cloud']
-        np.savez(os.path.join(save_dir, 'central_cloud.npz'), local_cloud)
+        local_grid = self.last_vertex['grid']
+        np.savez(os.path.join(save_dir, 'central_grid.npz'), local_grid)
         np.savetxt(os.path.join(save_dir, 'central_position.txt'), self.last_vertex['pose_for_visualization'])
         edges_from_vcur = self.graph.get_edges_from(self.last_vertex_id)
         for v, rel_pose in edges_from_vcur:
-            vcloud = self.graph.get_vertex(v)['cloud']
+            vgrid = self.graph.get_vertex(v)['grid']
             rel_x, rel_y, rel_theta = rel_pose
             rel_x_rotated = -rel_x * np.cos(rel_theta) - rel_y * np.sin(rel_theta)
             rel_y_rotated = rel_x * np.sin(rel_theta) - rel_y * np.cos(rel_theta)
-            vcloud_transformed = transform_pcd(vcloud, rel_x, rel_y, -rel_theta)
-            local_cloud = np.concatenate([local_cloud, vcloud_transformed], axis=0)
-            np.savez(os.path.join(save_dir, '{}_cloud.npz'.format(v)), vcloud)
-            np.savez(os.path.join(save_dir, '{}_cloud_transformed.npz').format(v), vcloud_transformed)
+            vgrid_transformed = transform_grid(vgrid, rel_x, rel_y, -rel_theta)
+            local_grid = np.maximum(local_grid, vgrid_transformed)
+            np.savez(os.path.join(save_dir, '{}_grid.npz'.format(v)), vgrid)
+            np.savez(os.path.join(save_dir, '{}_grid_transformed.npz').format(v), vgrid_transformed)
             np.savetxt(os.path.join(save_dir, '{}_rel_pose.txt'.format(v)), np.array(rel_pose))
             np.savetxt(os.path.join(save_dir, '{}_position.txt'.format(v)), np.array(self.graph.get_vertex(v)['pose_for_visualization']))
-        self.local_grid = get_occupancy_grid(local_cloud, radius=8)
+        self.local_grid = local_grid
         self.local_grid_cnt += 1
 
     def publish_local_grid(self):
@@ -496,18 +487,11 @@ class TopoSLAMModel():
     def get_rel_pose_from_stamp(self, timestamp, verbose=False):
         if len(self.rel_poses_stamped) == 0:
             self.rel_poses_stamped.append([timestamp] + self.rel_pose_of_vcur)
-        #if verbose:
-            #print('Timestamp diff:', timestamp - self.rel_poses_stamped[0][0])
-            #print('Rel poses stamped:')
-            #for rel_pose in self.rel_poses_stamped:
-            #    print(rel_pose[0] - self.rel_poses_stamped[0][0], rel_pose[1:])
         j = 0
         while j < len(self.rel_poses_stamped) and self.rel_poses_stamped[j][0] < timestamp:
             j += 1
         if j == len(self.rel_poses_stamped):
             j -= 1
-        #if verbose:
-        #    print('j:', j)
         return self.rel_poses_stamped[j][1:], get_rel_pose(*self.rel_poses_stamped[j][1:], *self.rel_pose_of_vcur)
 
     def get_rel_pose_from_localization(self, rel_pose_v_to_vcur, timestamp):
@@ -526,7 +510,7 @@ class TopoSLAMModel():
         rel_pose_of_vcur = apply_pose_shift(rel_pose_v_to_vcur, *rel_pose_after_localization)
         return rel_pose_of_vcur
 
-    def reattach_by_edge(self, cur_cloud, timestamp, target_vertex_id=None, save_results=True):
+    def reattach_by_edge(self, cur_grid, timestamp, target_vertex_id=None, save_results=True):
         pose_diffs = []
         edge_poses = []
         neighbours = []
@@ -542,9 +526,14 @@ class TopoSLAMModel():
                 target_pose_diff = pose_diff
         dist_to_vcur = np.sqrt(self.rel_pose_of_vcur[0] ** 2 + self.rel_pose_of_vcur[1] ** 2)
         changed = False
-        if target_vertex_id is not None and target_pose_diff is not None and target_pose_diff < 5 and target_pose_diff < dist_to_vcur:
-            nearest_vertex_id = target_vertex_id
-            pose_on_edge = target_pose
+        #print('Target vertex id:', target_vertex_id)
+        if target_vertex_id is not None:
+            if target_pose_diff is not None and target_pose_diff < 5: #and target_pose_diff < dist_to_vcur:
+                nearest_vertex_id = target_vertex_id
+                pose_on_edge = target_pose
+            else:
+                print('Failed to change to target vertex {}. Target pose diff is {}'.format(target_vertex_id, target_pose_diff))
+                return
         elif len(pose_diffs) > 0 and min(pose_diffs) < 3 and min(pose_diffs) < dist_to_vcur:
             nearest_vertex_id = neighbours[np.argmin(pose_diffs)]
             pose_on_edge = edge_poses[np.argmin(pose_diffs)]
@@ -553,8 +542,8 @@ class TopoSLAMModel():
         print('Pose on edge:', pose_on_edge)
         old_rel_pose_of_vcur = self.rel_pose_of_vcur
         rel_pose_to_vertex = get_rel_pose(*self.rel_pose_of_vcur, *pose_on_edge)
-        cur_cloud_transformed = transform_pcd(cur_cloud, *rel_pose_to_vertex)
-        x, y, theta = self.graph.get_transform_to_vertex(nearest_vertex_id, cur_cloud_transformed)
+        cur_grid_transformed = transform_grid(cur_grid, *rel_pose_to_vertex)
+        x, y, theta = self.graph.get_transform_to_vertex(nearest_vertex_id, cur_grid_transformed)
         #print('Rel pose to vertex:', rel_pose_to_vertex)
         #print('True rel pose to vertex:', get_rel_pose(*self.odom_pose, *self.graph.get_vertex(nearest_vertex_id)['pose_for_visualization']))
         """
@@ -607,7 +596,7 @@ class TopoSLAMModel():
         self.rel_pose_of_vcur = rel_poses[0]
         return True
 
-    def reattach_by_localization(self, global_pose_for_visualization, iou_threshold, cur_cloud, timestamp):
+    def reattach_by_localization(self, global_pose_for_visualization, iou_threshold, cur_grid, timestamp):
         vertex_ids, rel_poses = self.localization_results
         if len(self.rel_poses_stamped) > 0 and self.localizer.localized_stamp < self.rel_poses_stamped[0][0]:
             print('Old localization 1! Ignore it')
@@ -620,83 +609,47 @@ class TopoSLAMModel():
                 continue
             pred_rel_pose_vcur_to_v = apply_pose_shift(self.rel_pose_vcur_to_loc, *self.graph.inverse_transform(*rel_poses[i]))
             iou = get_iou(*get_rel_pose(*global_pose_for_visualization, *self.graph.get_vertex(v)['pose_for_visualization']), 
-                                cur_cloud, self.graph.get_vertex(v)['cloud'], save=False)
-            #print('Vertex {}, IoU {}'.format(v, iou))
+                                cur_grid, self.graph.get_vertex(v)['grid'], save=False)
             vx, vy, vtheta = self.graph.get_vertex(v)['pose_for_visualization']
             #print('IoU between ({}, {}) and ({}, {}) is {}'.format(x, y, vx, vy, iou))
             if iou > iou_threshold:
                 found_proper_vertex = True
                 print('Change to vertex ({}, {})'.format(vx, vy))
-                #print('Old rel pose of vcur:', self.rel_pose_of_vcur)
                 last_x, last_y, last_theta = self.last_vertex['pose_for_visualization']
-                #print('Vcur and v:', self.last_vertex_id, v)
-                #true_rel_pose_vcur_to_v = get_rel_pose(*self.last_vertex['pose_for_visualization'], 
-                #                                    *self.graph.get_vertex(v)['pose_for_visualization'])
-                #print('Global pose vcur:', self.last_vertex['pose_for_visualization'])
-                #print('Global pose v:', self.graph.get_vertex(v)['pose_for_visualization'])
-                #print('Rel pose vcur to loc:', self.rel_pose_vcur_to_loc)
-                #print('True rel pose vcur to loc:', get_rel_pose(*self.last_vertex['pose_for_visualization'], *self.localization_pose))
-                #print('Inverse rel pose:', self.graph.inverse_transform(*rel_poses[i]))
-                #print('True inverse rel pose:', get_rel_pose(*self.localization_pose, *self.graph.get_vertex(v)['pose_for_visualization']))
-                #print('True rel pose vcur to v:', true_rel_pose_vcur_to_v)
-                #print('Predicted rel pose:', pred_rel_pose_vcur_to_v)
                 self.graph.add_edge(self.last_vertex_id, v, *pred_rel_pose_vcur_to_v)
                 self.last_vertex_id = v
                 self.last_vertex = self.graph.get_vertex(v)
-                #print('Localization stamp:', self.localizer.localized_stamp)
-                #true_rel_pose = get_rel_pose(*self.last_vertex['pose_for_visualization'], *self.odom_pose)
-                #true_rel_pose = apply_pose_shift(self.graph.inverse_transform(*true_rel_pose_vcur_to_v), *self.rel_pose_of_vcur)
                 _, rel_pose_after_localization = self.get_rel_pose_from_stamp(self.localizer.localized_stamp, verbose=True)
                 pred_rel_pose = apply_pose_shift(rel_poses[i], *rel_pose_after_localization)
                 save_dir = '/home/kirill/test_rel_pose/{}'.format(self.rel_pose_cnt)
                 if not os.path.exists(save_dir):
                     os.mkdir(save_dir)
-                #np.savetxt(os.path.join(save_dir, 'true_rel_pose.txt'), true_rel_pose)
                 np.savetxt(os.path.join(save_dir, 'predicted_rel_pose.txt'), pred_rel_pose)
                 self.rel_pose_cnt += 1
-                #print('Rel pose after localization:', rel_pose_after_localization)
-                #print('True rel pose of vcur:', true_rel_pose)
-                #print('Pred rel pose of vcur:', pred_rel_pose)
                 self.rel_pose_of_vcur = pred_rel_pose
                 self.rel_pose_vcur_to_loc = apply_pose_shift(self.graph.inverse_transform(*pred_rel_pose_vcur_to_v), *self.rel_pose_vcur_to_loc)
-                #print('New rel pose of vcur:', self.rel_pose_of_vcur)
-                #print('New rel pose vcur to loc:', self.rel_pose_vcur_to_loc)
                 self.rel_poses_stamped = [[self.current_stamp] + self.rel_pose_of_vcur]
-                #print('Rel pose of vcur:', self.rel_pose_of_vcur)
-                #print('Predicted rel pose:', pred_rel_pose)
-                #print('True rel pose:', true_rel_pose)
                 #self.localization_time = 0
                 return True
         return False
 
     def add_new_vertex(self, timestamp, global_pose_for_visualization, img_front, img_back, cur_cloud, vertex_ids, rel_poses):
-        #global_localized_pose_for_visualization = [self.localizer.localized_x, self.localizer.localized_y, self.localizer.localized_theta]
-        #new_vertex_id = self.graph.add_vertex(global_localized_pose_for_visualization,
-        #                                        self.localizer.localized_img_front, self.localizer.localized_img_back,
-        #                                        self.localizer.localized_cloud)
         new_vertex_id = self.graph.add_vertex(global_pose_for_visualization,
                                                 img_front, img_back,
                                                 cur_cloud)
         new_vertex = self.graph.get_vertex(new_vertex_id)
         pose_stamped, new_rel_pose_of_vcur = self.get_rel_pose_from_stamp(timestamp)
         if self.last_vertex is not None:
-            #true_rel_pose = get_rel_pose(*self.last_vertex['pose_for_visualization'],
-            #                             *global_pose_for_visualization)
-            #print('True rel pose:', true_rel_pose)
-            #print('Rel pose of vcur:', self.rel_pose_of_vcur)
-            #print('new rel pose of vcur:', new_rel_pose_of_vcur)
-            self.graph.add_edge(self.last_vertex_id, new_vertex_id, *pose_stamped)#*true_rel_pose
+            true_rel_pose = get_rel_pose(*self.last_vertex['pose_for_visualization'], *new_vertex['pose_for_visualization'])
+            self.graph.add_edge(self.last_vertex_id, new_vertex_id, *true_rel_pose)#*pose_stamped
         self.rel_pose_of_vcur = new_rel_pose_of_vcur
         if self.rel_pose_vcur_to_loc is not None:
             self.rel_pose_vcur_to_loc = get_rel_pose(*pose_stamped, *self.rel_pose_vcur_to_loc)
         if len(self.rel_poses_stamped) == 0 or self.localizer.localized_stamp is None or self.localizer.localized_stamp >= self.rel_poses_stamped[0][0]:
             for v, rel_pose in zip(vertex_ids, rel_poses):
-                #true_rel_pose = get_rel_pose(*global_pose_for_visualization, *self.graph.get_vertex(v)['pose_for_visualization'])
                 pred_rel_pose = apply_pose_shift(self.rel_pose_vcur_to_loc, *self.graph.inverse_transform(*rel_pose))
                 if np.sqrt(pred_rel_pose[0] ** 2 + pred_rel_pose[1] ** 2) < 5:
-                    self.graph.add_edge(new_vertex_id, v, *pred_rel_pose)#*self.get_rel_pose_from_localization(rel_pose, timestamp))
-                    #print('True rel pose for edge:', true_rel_pose)
-                    #print('Predicted rel pose for edge:', pred_rel_pose)
+                    self.graph.add_edge(new_vertex_id, v, *pred_rel_pose)
         else:
             print('Old localization 2! Ignore it')
             #print((self.rel_poses_stamped[0][0] - self.localizer.localized_stamp).to_sec())
@@ -723,7 +676,10 @@ class TopoSLAMModel():
         dists = np.sqrt(rel_poses[:, 0] ** 2 + rel_poses[:, 1] ** 2)
         vertex_ids_refined = []
         for vertex_id in vertex_ids:
-            if self.check_path_condition(self.last_vertex_id, vertex_id):
+            x, y, theta = get_rel_pose(*self.last_vertex['pose_for_visualization'], *self.graph.get_vertex(vertex_id)['pose_for_visualization'])
+            dst = np.sqrt(x ** 2 + y ** 2)
+            #if self.check_path_condition(self.last_vertex_id, vertex_id):
+            if dst < 8:
                 vertex_ids_refined.append(vertex_id)
             else:
                 print('Remove vertex {} from localization, it is too far'.format(vertex_id))
@@ -731,11 +687,6 @@ class TopoSLAMModel():
         self.localization_results = (vertex_ids, rel_poses)
         print('Localized in vertices', vertex_ids)
         self.localization_pose = [self.localizer.localized_x, self.localizer.localized_y, self.localizer.localized_theta]
-        #print('Localization pose:', self.localization_pose)
-        #for i, vertex_id in enumerate(vertex_ids):
-            #true_rel_pose = get_rel_pose(*self.graph.get_vertex(vertex_id)['pose_for_visualization'], *self.localization_pose)
-            #print('True rel pose:', true_rel_pose)
-            #print('Predicted rel pose:', rel_poses[i])
         x = self.localizer.localized_x
         y = self.localizer.localized_y
         theta = self.localizer.localized_theta
@@ -744,13 +695,12 @@ class TopoSLAMModel():
         img_front = self.localizer.localized_img_front
         img_back = self.localizer.localized_img_back
         cloud = self.localizer.localized_cloud
+        grid = get_occupancy_grid(cloud)
         if len(vertex_ids) == 0:
             self.mutex.release()
             return
         self.localization_time = rospy.Time.now().to_sec()
         self.rel_pose_vcur_to_loc, _ = self.get_rel_pose_from_stamp(self.localizer.localized_stamp)
-        #print('True rel pose vcur to loc:', get_rel_pose(*self.last_vertex['pose_for_visualization'], *self.localization_pose))
-        #print('Rel pose vcur to loc:', self.rel_pose_vcur_to_loc)
         if self.last_vertex is None:
             print('Initially attached to vertex {} from localization'.format(vertex_ids[0]))
             self.last_vertex_id = vertex_ids[0]
@@ -767,35 +717,24 @@ class TopoSLAMModel():
                                     vertex_ids, rel_poses)
             else:
                 changed = self.reattach_by_localization(self.localization_pose, self.cur_iou, 
-                                                        self.localizer.localized_cloud, self.localizer.localized_stamp)
+                                                        grid, self.localizer.localized_stamp)
                 if not changed:
                     for i in range(len(vertex_ids)):
+                        true_rel_pose_vcur_to_v = get_rel_pose(*self.last_vertex['pose_for_visualization'], *self.graph.get_vertex(i)['pose_for_visualization'])
                         pred_rel_pose_vcur_to_v = apply_pose_shift(self.rel_pose_vcur_to_loc, *self.graph.inverse_transform(*rel_poses[i]))
                         if np.sqrt(pred_rel_pose_vcur_to_v[0] ** 2 + pred_rel_pose_vcur_to_v[1] ** 2) < 5:
                             print('Add edge from {} to {} with rel pose ({}, {}, {})'.format(self.last_vertex_id, vertex_ids[i], *pred_rel_pose_vcur_to_v))
-                            self.graph.add_edge(self.last_vertex_id, vertex_ids[i], *pred_rel_pose_vcur_to_v)
+                            self.graph.add_edge(self.last_vertex_id, vertex_ids[i], *true_rel_pose_vcur_to_v)#*pred_rel_pose_vcur_to_v)
         self.mutex.release()
 
     def update_by_iou(self, global_pose_for_visualization, img_front, img_back, cur_cloud, timestamp):
-        #print('Cnt:', self.cnt)
-        #print('Global pose:', global_pose_for_visualization)
-        #print('Prev pose:', self.prev_pose_for_visualization)
-        #if self.rel_pose_of_vcur is not None and self.last_vertex is not None:
-            #print('Last vertex pose:', self.last_vertex['pose_for_visualization'])
-            #print('Rel pose of vcur:', self.rel_pose_of_vcur)
-            #print('True rel pose:', get_rel_pose(*self.last_vertex['pose_for_visualization'], *global_pose_for_visualization))
         if self.publish_gt_map_flag:
             self.publish_gt_map()
         t1 = rospy.Time.now().to_sec()
         if cur_cloud is None:
             print('No point cloud received!')
             return
-        #if self.prev_pose_for_visualization is None:
-        #    self.prev_pose_for_visualization = global_pose_for_visualization
-        #    self.prev_rel_pose = [0, 0, 0]
-        #    self.prev_img_front = img_front
-        #    self.prev_img_back = img_back
-        #    self.prev_cloud = cur_cloud
+        cur_grid = get_occupancy_grid(cur_cloud)
         if self.last_vertex is None:
             rospy.sleep(2.0) # wait for localization
             if self.last_vertex is None: # If localization failed, init with new vertex
@@ -805,11 +744,7 @@ class TopoSLAMModel():
                                     [], [])
         last_x, last_y, _ = self.last_vertex['pose_for_visualization']
         in_sight = self.is_in_sight()
-        #print('Rel pose of vcur:', self.rel_pose_of_vcur)
-        #print('Last vertex pose:', self.last_vertex['pose_for_visualization'])
-        #print('Global pose:', global_pose_for_visualization)
-        iou = get_iou(*self.rel_pose_of_vcur, self.last_vertex['cloud'], cur_cloud, save=True, cnt=self.iou_cnt)
-        #print('cnt:', self.iou_cnt)
+        iou = get_iou(*self.rel_pose_of_vcur, self.last_vertex['grid'], cur_grid, save=True, cnt=self.iou_cnt)
         self.iou_cnt += 1
         self.cur_iou = iou
         #print('In sight:', in_sight)
@@ -817,23 +752,23 @@ class TopoSLAMModel():
         if in_sight is None:
             print('Failed to check straight-line visibility!')
             return
-        #np.sqrt(self.rel_pose_of_vcur[0] ** 2 + self.rel_pose_of_vcur[1] ** 2) > 3:
-        print('Path:', self.path)
-        print('Vcur:', self.last_vertex_id)
+        #print('Path:', self.path)
+        #print('Vcur:', self.last_vertex_id)
         if len(self.path) > 1 and self.path[0] == self.last_vertex_id:
-            self.reattach_by_edge(cur_cloud, timestamp, target_vertex_id=self.path[1])
-        if not in_sight or iou < self.iou_threshold:
+            self.reattach_by_edge(cur_grid, timestamp, target_vertex_id=self.path[1])
+        elif not in_sight or iou < self.iou_threshold:
             self.mutex.acquire()
             if not in_sight:
                 print('Out of visibility')
             else:
                 print('Low IoU')
             #print('Last localization {} seconds ago'.format(rospy.Time.now().to_sec() - self.localization_time))
-            changed = self.reattach_by_edge(cur_cloud, timestamp)
+            #print(self.path[0], self.last_vertex_id)
+            changed = self.reattach_by_edge(cur_grid, timestamp)
             if not changed:
                 if rospy.Time.now().to_sec() - self.localization_time < 5:
                     #print('Localized stamp:', self.localizer.localized_stamp)
-                    changed = self.reattach_by_localization(global_pose_for_visualization, 0, cur_cloud, self.localizer.localized_stamp)
+                    changed = self.reattach_by_localization(global_pose_for_visualization, 0, cur_grid, self.localizer.localized_stamp)
                     if not changed:
                         print('No proper vertex to change. Add new vertex')
                         vertex_ids, rel_poses = self.localization_results
@@ -851,11 +786,6 @@ class TopoSLAMModel():
         self.update_local_grid()
         self.publish_local_grid()
         self.publish_rel_pose()
-        #self.prev_pose_for_visualization = global_pose_for_visualization
-        #self.prev_rel_pose = self.rel_pose_of_vcur
-        #self.prev_img_front = img_front
-        #self.prev_img_back = img_back
-        #self.prev_cloud = cur_cloud
 
     def pcd_callback(self, msg):
         dt = (rospy.Time.now() - msg.header.stamp).to_sec()
@@ -876,20 +806,15 @@ class TopoSLAMModel():
             rel_x, rel_y, rel_theta = get_rel_pose(*self.odom_pose, x, y, theta)
         else:
             rel_x, rel_y, rel_theta = x, y, theta
-        #print('Pose shift:', rel_x, rel_y, rel_theta)
         self.odom_pose = [x, y, theta]
         if self.rel_pose_of_vcur is None:
             print('Rel pose of vcur is None, initialize it as ({}, {}, {})'.format(rel_x, rel_y, rel_theta))
             self.rel_pose_of_vcur = [rel_x, rel_y, rel_theta]
         else:
             self.rel_pose_of_vcur = apply_pose_shift(self.rel_pose_of_vcur, rel_x, rel_y, rel_theta)
-            #print('From pcd callback: True pose:', get_rel_pose(*self.last_vertex['pose_for_visualization'],
-            #                                                    *self.odom_pose))
-            #print('Rel pose of vcur:', self.rel_pose_of_vcur)
 
         self.current_stamp = msg.header.stamp
         self.rel_poses_stamped.append([msg.header.stamp] + self.rel_pose_of_vcur)
-        #print('Rel pose of vcur:', self.rel_pose_of_vcur)
 
         cur_cloud = get_xyz_coords_from_msg(msg, self.pcd_fields, self.pcd_rotation)
         self.localizer.global_pose_for_visualization = cur_global_pose
@@ -897,7 +822,7 @@ class TopoSLAMModel():
         self.localizer.img_back = cur_img_back
         self.localizer.cloud = cur_cloud
         self.localizer.stamp = msg.header.stamp
-        start_time = time.time()
+        #start_time = time.time()
         self.update_by_iou(cur_global_pose, cur_img_front, cur_img_back, cur_cloud, msg.header.stamp)
         #print('Update by iou time:', time.time() - start_time)
 

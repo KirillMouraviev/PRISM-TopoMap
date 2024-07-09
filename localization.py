@@ -59,9 +59,9 @@ class Localizer():
             if idx >= 0:
                 vertex_dict = self.graph.vertices[idx]
                 x, y, theta = vertex_dict['pose_for_visualization']
-                cloud = vertex_dict['cloud']
+                grid = vertex_dict['grid']
                 #print('GT x, y, theta:', x, y, theta)
-                #np.savetxt(os.path.join(save_dir, 'cand_cloud_{}.txt'.format(idx)), cloud)
+                np.savetxt(os.path.join(save_dir, 'cand_grid_{}.txt'.format(idx)), grid)
                 if tf is not None:
                     tf_data.append([idx] + list(tf))
                 else:
@@ -74,6 +74,8 @@ class Localizer():
         np.savetxt(os.path.join(save_dir, 'reg_scores.txt'), np.array(reg_scores))
 
     def publish_localization_results(self, vertex_id_first, vertex_ids_matched, vertex_ids_unmatched, rel_poses):
+        if vertex_id_first < 0:
+            return
         # Publish top-1 PlaceRecognition vertex
         vertices_marker = Marker()
         #vertices_marker = ns = 'points_and_lines'
@@ -179,30 +181,6 @@ class Localizer():
         for i in range(n):
             result_msg.data.append(rel_poses[i][2])
         self.result_publisher.publish(result_msg)
-        if len(vertex_ids) > 0:
-            i = vertex_ids[0]
-            cloud = self.graph.vertices[i]['cloud']
-            cloud_with_fields = np.zeros((cloud.shape[0]), dtype=[
-                ('x', np.float32),
-                ('y', np.float32),
-                ('z', np.float32),#]),
-                ('r', np.uint8),
-                ('g', np.uint8),
-                ('b', np.uint8)])
-            cloud_with_fields['x'] = cloud[:, 0]
-            cloud_with_fields['y'] = cloud[:, 1]
-            cloud_with_fields['z'] = cloud[:, 2]
-            #cloud_with_fields['r'] = cloud[:, 3]
-            #cloud_with_fields['g'] = cloud[:, 4]
-            #cloud_with_fields['b'] = cloud[:, 5]
-            #cloud_with_fields = ros_numpy.point_cloud2.merge_rgb_fields(cloud_with_fields)
-            cloud_msg = ros_numpy.point_cloud2.array_to_pointcloud2(cloud_with_fields)
-            if self.stamp is None:
-                cloud_msg.header.stamp = rospy.Time.now()
-            else:
-                cloud_msg.header.stamp = self.stamp
-            cloud_msg.header.frame_id = 'base_link'
-            self.cand_cloud_publisher.publish(cloud_msg)
 
     def localize(self, event=None):
         if self.global_pose_for_visualization is None:
