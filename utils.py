@@ -4,6 +4,7 @@ import numpy as np
 from skimage.transform import rotate as image_rotate
 from skimage.io import imsave
 from scipy.spatial.transform import Rotation
+from cv2 import warpAffine
 
 def get_xyz_coords_from_msg(msg, fields, rotation):
     points_numpify = ros_numpy.point_cloud2.pointcloud2_to_array(msg)
@@ -44,14 +45,40 @@ def transform_pcd(points, x, y, theta):
     points_transformed[:, 1] += y
     return points_transformed
 
-def get_occupancy_grid(points_xyz, resolution=0.1, radius=18):
+def transform_grid(grid, x, y, theta):
+    resolution = 0.1
+    minus8 = np.array([
+        [1, 0, 18 / resolution],
+        [0, 1, 18 / resolution],
+        [0, 0, 1]
+    ])
+    plus8 = np.array([
+        [1, 0, -18 / resolution],
+        [0, 1, -18 / resolution],
+        [0, 0, 1]
+    ])
+    tf_matrix = np.array([
+        [np.cos(-theta), np.sin(-theta), y / resolution],
+        [-np.sin(-theta), np.cos(-theta), x / resolution],
+        [0, 0, 1]
+    ])
+    tf_matrix = minus8 @ tf_matrix @ plus8
+    return warpAffine(grid, tf_matrix[:2], grid.shape)
+
+def get_occupancy_grid(points_xyz, resolution=0.1, radius=18, clip=8):
     index = np.isnan(points_xyz).any(axis=1)
     points_xyz = np.delete(points_xyz, index, axis=0)
-    points_xyz = np.clip(points_xyz, -8, 8)
+    points_xyz = points_xyz[(points_xyz[:, 0] > -clip) * (points_xyz[:, 0] < clip) * (points_xyz[:, 1] > -clip) * (points_xyz[:, 1] < clip)]
+    points_xyz_obstacles = remove_floor_and_ceil(points_xyz, floor_height=-0.3, ceil_height=0.5)
     #print('Points xyz:', points_xyz.shape, points_xyz[0], points_xyz.min(), points_xyz.max())
-    points_ij = np.round(points_xyz[:, :2] / resolution).astype(int) + [int(radius / resolution), int(radius / resolution)]
     grid = np.zeros((int(2 * radius / resolution), int(2 * radius / resolution)), dtype=np.uint8)
+    points_ij = np.round(points_xyz[:, :2] / resolution).astype(int) + [int(radius / resolution), int(radius / resolution)]
+    points_ij = points_ij[(points_ij[:, 0] >= 0) * (points_ij[:, 0] < grid.shape[0]) * (points_ij[:, 1] >= 0) * (points_ij[:, 1] < grid.shape[1])]
     grid[points_ij[:, 0], points_ij[:, 1]] = 1
+    grid = raycast(grid)
+    points_ij = np.round(points_xyz_obstacles[:, :2] / resolution).astype(int) + [int(radius / resolution), int(radius / resolution)]
+    points_ij = points_ij[(points_ij[:, 0] >= 0) * (points_ij[:, 0] < grid.shape[0]) * (points_ij[:, 1] >= 0) * (points_ij[:, 1] < grid.shape[1])]
+    grid[points_ij[:, 0], points_ij[:, 1]] = 2
     return grid
 
 def normalize(angle):
@@ -113,19 +140,15 @@ def get_rel_pose(x, y, theta, x2, y2, theta2):
     rel_x, rel_y = rotate(x2 - x, y2 - y, theta)
     return [rel_x, rel_y, normalize(theta2 - theta)]
 
-def get_iou(rel_x, rel_y, rel_theta, cur_cloud, v_cloud, save=False, cnt=0):
+def get_iou(rel_x, rel_y, rel_theta, cur_grid, v_grid, save=False, cnt=0):
     rel_x_rotated = -rel_x * np.cos(rel_theta) - rel_y * np.sin(rel_theta)
     rel_y_rotated = rel_x * np.sin(rel_theta) - rel_y * np.cos(rel_theta)
     rel_x, rel_y = rel_x_rotated, rel_y_rotated
     if np.sqrt(rel_x ** 2 + rel_y ** 2) > 5:
         return 0
-    cur_cloud_transformed = transform_pcd(cur_cloud, rel_x, rel_y, rel_theta)
-    resolution = 0.1
-    cur_grid_transformed = get_occupancy_grid(cur_cloud_transformed, resolution=resolution)
-    cur_grid_transformed = raycast(cur_grid_transformed, center_point=(cur_grid_transformed.shape[0] // 2 + rel_x / resolution, 
-                                                                       cur_grid_transformed.shape[1] // 2 + rel_y / resolution))
-    v_grid = get_occupancy_grid(v_cloud, resolution=resolution)
-    v_grid = raycast(v_grid)
+    cur_grid_transformed = transform_grid(cur_grid, rel_x, rel_y, rel_theta)
+    cur_grid_transformed[cur_grid_transformed > 0] = 1
+    v_grid[v_grid > 0] = 1
     intersection = np.sum(v_grid * cur_grid_transformed)
     union = np.sum(v_grid | cur_grid_transformed)
     grid_aligned = np.zeros((v_grid.shape[0], v_grid.shape[1], 3))
@@ -137,9 +160,9 @@ def get_iou(rel_x, rel_y, rel_theta, cur_cloud, v_cloud, save=False, cnt=0):
         save_dir = '/home/kirill/test_iou/{}'.format(cnt)
         if not os.path.exists(save_dir):
             os.mkdir(save_dir)
-        np.savez(os.path.join(save_dir, 'cur_cloud.npz'), cur_cloud)
-        np.savez(os.path.join(save_dir, 'cur_cloud_transformed.npz'), cur_cloud_transformed)
-        np.savez(os.path.join(save_dir, 'v_cloud.npz'), v_cloud)
+        np.savez(os.path.join(save_dir, 'cur_grid.npz'), cur_grid)
+        np.savez(os.path.join(save_dir, 'cur_grid_transformed.npz'), cur_grid_transformed)
+        np.savez(os.path.join(save_dir, 'v_grid.npz'), v_grid)
         np.savetxt(os.path.join(save_dir, 'rel_pose.txt'), np.array([rel_x, rel_y, rel_theta]))
         imsave(os.path.join(save_dir, 'grid_aligned.png'), grid_aligned)
     return intersection / union

@@ -15,12 +15,15 @@ from torch import Tensor
 import faiss
 import torch
 from scipy.spatial.transform import Rotation
-from skimage.io import imsave
+from skimage.io import imread, imsave
 from opr.pipelines.registration import PointcloudRegistrationPipeline, RansacGlobalRegistrationPipeline, Feature2DGlobalRegistrationPipeline
 from opr.datasets.augmentations import DefaultHM3DImageTransform
 import MinkowskiEngine as ME
 import open3d as o3d
 import open3d.pipelines.registration as registration
+from toposlam_msgs.msg import Edge
+from toposlam_msgs.msg import TopologicalGraph as TopologicalGraphMessage
+from utils import get_occupancy_grid, get_rel_pose
 
 
 class TopologicalGraph():
@@ -33,30 +36,28 @@ class TopologicalGraph():
                  registration_score_threshold=0.5,
                  inline_registration_score_threshold=0.5,
                  floor_height=-1.0,
-                 ceil_height=2.0,
-                 path_to_save_logs='/home/kirill/prism_topomap_logs'):
+                 ceil_height=2.0):
         self.vertices = []
         self.adj_lists = []
         self.map_frame = map_frame
-        self.pub = rospy.Publisher('topological_map', MarkerArray, latch=True, queue_size=100)
+        self.graph_viz_pub = rospy.Publisher('topological_map', MarkerArray, latch=True, queue_size=100)
+        self.graph_pub = rospy.Publisher('graph', TopologicalGraphMessage, latch=True, queue_size=100)
         self.place_recognition_model = place_recognition_model
         self.index = place_recognition_index
         self.registration_pipeline = registration_model
         self.registration_score_threshold = registration_score_threshold
         self.inline_registration_pipeline = inline_registration_model
         self.inline_registration_score_threshold = 0.5
-        self.ref_cloud_publisher = rospy.Publisher('/ref_cloud', PointCloud2, latch=True, queue_size=100)
+        self.ref_cloud_pub = rospy.Publisher('/ref_cloud', PointCloud2, latch=True, queue_size=100)
         self._pointcloud_quantization_size = 0.2
         self.floor_height = floor_height
         self.ceil_height = ceil_height
         self.device = torch.device('cuda:0')
         self.image_transform = DefaultHM3DImageTransform(train=False)
-        if not os.path.exists(path_to_save_logs):
-            os.mkdir(path_to_save_logs)
-        self.graph_save_path = os.path.join(path_to_save_logs, 'graph_data')
+        self.graph_save_path = '/home/kirill/TopoSLAM/toposlam_ws/src/simple_toposlam_model/test_husky_rosbag_minkloc3d_5/graph_data'
         if not os.path.exists(self.graph_save_path):
             os.mkdir(self.graph_save_path)
-        self.pr_results_save_path = os.path.join(path_to_save_logs, 'place_recognition_data')
+        self.pr_results_save_path = '/home/kirill/TopoSLAM/toposlam_ws/src/simple_toposlam_model/test_husky_rosbag_minkloc3d_5/place_recognition_data'
         if not os.path.exists(self.pr_results_save_path):
             os.mkdir(self.pr_results_save_path)
         self.global_pose_for_visualization = None
@@ -89,11 +90,19 @@ class TopologicalGraph():
         return angle
 
     def load_from_json(self, input_path):
-        fin = open(input_path, 'r')
+        fin = open(os.path.join(input_path, 'graph.json'), 'r')
         j = json.load(fin)
         fin.close()
         self.vertices = j['vertices']
         self.adj_lists = j['edges']
+        for i in range(len(self.vertices)):
+            grid = np.load(os.path.join(input_path, '{}_grid.npz'.format(i)))['arr_0']
+            self.vertices[i]['grid'] = grid
+            img_front = imread(os.path.join(input_path, '{}_img_front.png'.format(i)))
+            self.vertices[i]['img_front'] = img_front
+            img_back = imread(os.path.join(input_path, '{}_img_back.png'.format(i)))
+            self.vertices[i]['img_back'] = img_back
+            self.index.add(np.array(self.vertices[i]['descriptor'])[np.newaxis, :])
 
     def add_vertex(self, global_pose_for_visualization, img_front, img_back, cloud=None):
         x, y, theta = global_pose_for_visualization
@@ -101,9 +110,13 @@ class TopologicalGraph():
         self.adj_lists.append([])
         if cloud is not None:
             img_front_transformed = self.image_transform(img_front)
+            #print(img_front_transformed.shape, img_front_transformed.min(), img_front_transformed.mean(), img_front_transformed.max())
             img_back_transformed = self.image_transform(img_back)
+            #print(img_back_transformed.shape, img_back_transformed.min(), img_back_transformed.mean(), img_back_transformed.max())
+            #print('Transformed image shape:', img_front_transformed.shape)
             img_front_tensor = torch.Tensor(img_front).cuda()
             img_back_tensor = torch.Tensor(img_back).cuda()
+            #print('Img front min and max:', img_front_transformed.min(), img_front_transformed.max())
             img_front_tensor = torch.permute(img_front_tensor, (2, 0, 1))
             img_back_tensor = torch.permute(img_back_tensor, (2, 0, 1))
             input_data = {
@@ -116,15 +129,18 @@ class TopologicalGraph():
             descriptor = self.place_recognition_model(batch)["final_descriptor"].detach().cpu().numpy()
             if len(descriptor.shape) == 1:
                 descriptor = descriptor[np.newaxis, :]
+            grid = get_occupancy_grid(cloud[:, :3])
+            #print('X y theta:', x, y, theta)
             vertex_dict = {
                 'stamp': rospy.Time.now(),
                 'pose_for_visualization': [x, y, theta],
                 'img_front': img_front,
                 'img_back': img_back,
-                'cloud': cloud,
+                'grid': grid,
                 'descriptor': descriptor
             }
             self.vertices.append(vertex_dict)
+            #print('Descriptor shape:', descriptor.shape)
             self.index.add(descriptor)
         return len(self.vertices) - 1
 
@@ -138,7 +154,7 @@ class TopologicalGraph():
         np.savetxt(os.path.join(save_dir, 'pose_stamped.txt'), pose_stamped)
         imsave(os.path.join(save_dir, 'img_front.png'), vertex_dict['img_front'])
         imsave(os.path.join(save_dir, 'img_back.png'), vertex_dict['img_back'])
-        np.savez(os.path.join(save_dir, 'cloud.npz'), vertex_dict['cloud'])
+        np.savez(os.path.join(save_dir, 'grid.npz'), vertex_dict['grid'])
         np.savetxt(os.path.join(save_dir, 'descriptor.txt'), vertex_dict['descriptor'])
         edges = []
         for v, rel_pose in self.adj_lists[vertex_id]:
@@ -152,7 +168,7 @@ class TopologicalGraph():
             os.mkdir(save_dir)
         imsave(os.path.join(save_dir, 'img_front.png'), state_dict['img_front'])
         imsave(os.path.join(save_dir, 'img_back.png'), state_dict['img_back'])
-        np.savez(os.path.join(save_dir, 'cloud.npz'), state_dict['cloud'])
+        np.savez(os.path.join(save_dir, 'grid.npz'), state_dict['grid'])
         np.savetxt(os.path.join(save_dir, 'descriptor.txt'), state_dict['descriptor'])
         np.savetxt(os.path.join(save_dir, 'vertex_ids.txt'), vertex_ids)
         gt_pose_data = [state_dict['pose_for_visualization']]
@@ -160,8 +176,6 @@ class TopologicalGraph():
         for idx, tf in zip(vertex_ids, transforms):
             if idx >= 0:
                 vertex_dict = self.vertices[idx]
-                #print('GT x, y, theta:', x, y, theta)
-                #np.savetxt(os.path.join(save_dir, 'cand_cloud_{}.txt'.format(idx)), cloud)
                 if tf is not None:
                     tf_data.append([idx] + list(tf))
                 else:
@@ -171,6 +185,27 @@ class TopologicalGraph():
         np.savetxt(os.path.join(save_dir, 'transforms.txt'), np.array(tf_data))
         np.savetxt(os.path.join(save_dir, 'pr_scores.txt'), np.array(pr_scores))
         np.savetxt(os.path.join(save_dir, 'reg_scores.txt'), np.array(reg_scores))
+
+    def get_tf_matrix(self, transform_for_grid):
+        trans_i, trans_j, rot_angle = transform_for_grid
+        print('Trans i trans j rot angle:', trans_i, trans_j, rot_angle)
+        plus8 = np.eye(4)
+        max_range = 18
+        grid_size = 0.1
+        plus8[0, 3] = max_range# + 1
+        plus8[1, 3] = max_range# + 1
+        minus8 = np.eye(4)
+        minus8[0, 3] = -max_range# - 1
+        minus8[1, 3] = -max_range# - 1
+        tf_matrix = np.array([
+            [np.cos(rot_angle), np.sin(rot_angle), 0, trans_i * grid_size],
+            [-np.sin(rot_angle), np.cos(rot_angle), 0, trans_j * grid_size],
+            [0,                  0,                 1, 0],
+            [0,                  0,                 0, 1]
+        ])
+        tf_matrix = minus8 @ tf_matrix @ plus8
+        print('Translation from tf matrix:', tf_matrix[:, 3])
+        return tf_matrix
 
     def get_k_most_similar(self, img_front, img_back, cloud, stamp, k=1):
         t1 = time.time()
@@ -203,10 +238,11 @@ class TopologicalGraph():
             else:
                 cloud_msg.header.stamp = rospy.Time.now()
             cloud_msg.header.frame_id = 'base_link'
-            self.ref_cloud_publisher.publish(cloud_msg)
+            self.ref_cloud_pub.publish(cloud_msg)
         t2 = time.time()
         #print('Ref cloud publish time:', t2 - t1)
         batch = self._preprocess_input(input_data)
+        grid = get_occupancy_grid(cloud)
         t3 = time.time()
         #print('Preprocessing time:', t3 - t2)
         descriptor = self.place_recognition_model(batch)["final_descriptor"].detach().cpu().numpy()
@@ -218,29 +254,33 @@ class TopologicalGraph():
         #print('Place recognition time:', t4 - t3)
         pr_scores = dists[0]
         pred_i = pred_i[0]
+        print('Pred i:', pred_i)
         pred_tf = []
         pred_i_filtered = []
         for idx in pred_i:
+            #print('Stamp {}, vertex id {}'.format(stamp, idx))
             if idx < 0:
                 continue
             t1 = time.time()
             cand_vertex_dict = self.vertices[idx]
-            cand_cloud = cand_vertex_dict['cloud']
-            cand_cloud_tensor = torch.Tensor(cand_cloud[:, :3]).to(self.device)
-            ref_cloud_tensor = torch.Tensor(cloud[:, :3]).to(self.device)
+            cand_grid = cand_vertex_dict['grid']
+            cand_grid_tensor = torch.Tensor(cand_grid).to(self.device)
+            ref_grid_tensor = torch.Tensor(grid).to(self.device)
             start_time = time.time()
             save_dir = os.path.join(self.pr_results_save_path, str(stamp))
-            tf_matrix, score = self.registration_pipeline.infer(ref_cloud_tensor, cand_cloud_tensor, save_dir=save_dir)
+            transform, score = self.registration_pipeline.infer(ref_grid_tensor, cand_grid_tensor, save_dir=save_dir)
             t2 = time.time()
             #print('Registration time:', t2 - t1)
             #t3 = time.time()
             #print('ICP time:', t3 - t2)
+            #if score_icp < 0.8:
             reg_scores.append(score)
-            #print('Registration score:', score)
+            #print('Registration score of vertex {} is {}'.format(idx, score))
             if score < self.registration_score_threshold:
                 pred_i_filtered.append(-1)
                 pred_tf.append([0, 0, 0, 0, 0, 0])
             else:
+                tf_matrix = self.get_tf_matrix(transform)
                 pred_i_filtered.append(idx)
                 tf_rotation = Rotation.from_matrix(tf_matrix[:3, :3]).as_rotvec()
                 tf_translation = tf_matrix[:3, 3]
@@ -254,24 +294,27 @@ class TopologicalGraph():
             'pose_for_visualization': self.global_pose_for_visualization,
             'img_front': img_front,
             'img_back': img_back,
-            'cloud': cloud,
+            'grid': grid,
             'descriptor': descriptor
         }
         self.save_localization_results(state_dict, pred_i, pred_tf, pr_scores, reg_scores)
         return pred_i, pred_i_filtered, np.array(pred_tf), pr_scores, reg_scores
 
-    def get_transform_to_vertex(self, vertex_id, cloud):
-        cand_cloud = self.vertices[vertex_id]['cloud']
-        cand_cloud_tensor = torch.Tensor(cand_cloud[:, :3]).to(self.device)
-        ref_cloud_tensor = torch.Tensor(cloud[:, :3]).to(self.device)
-        tf_matrix, score = self.inline_registration_pipeline.infer(ref_cloud_tensor, cand_cloud_tensor)
+    def get_transform_to_vertex(self, vertex_id, grid):
+        return get_rel_pose(*self.global_pose_for_visualization, *self.vertices[vertex_id]['pose_for_visualization'])
+        """
+        cand_grid = self.vertices[vertex_id]['grid']
+        cand_grid_tensor = torch.Tensor(cand_grid).to(self.device)
+        ref_grid_tensor = torch.Tensor(grid).to(self.device)
+        transform, score = self.inline_registration_pipeline.infer(ref_grid_tensor, cand_grid_tensor)
         if score > self.inline_registration_score_threshold:
-            tf_rotation = Rotation.from_matrix(tf_matrix[:3, :3]).as_rotvec()
-            tf_translation = tf_matrix[:3, 3]
-            x, y, _ = tf_translation
-            _, __, theta = tf_rotation
+            tf_matrix = self.get_tf_matrix(transform)
+            x = tf_matrix[0, 3]
+            y = tf_matrix[1, 3]
+            _, __, theta = Rotation.from_matrix(tf_matrix[:3, :3]).as_rotvec()
             return x, y, theta
         return None, None, None
+        """
 
     def inverse_transform(self, x, y, theta):
         x_inv = -x * np.cos(theta) - y * np.sin(theta)
@@ -305,8 +348,12 @@ class TopologicalGraph():
                 return rel_pose
         return None
 
+    def get_edges_from(self, u):
+        return self.adj_lists[u]
+
     def get_path_with_length(self, u, v):
         # Initialize distances and previous nodes dictionaries
+        start_time = time.time()
         distances = [float('inf')] * len(self.adj_lists)
         prev_nodes = [None] * len(self.adj_lists)
         # Set distance to start node as 0
@@ -324,6 +371,7 @@ class TopologicalGraph():
                     cur = prev_nodes[cur]
                     path.append(cur)
                 path = path[::-1]
+                #print('Path planning time:', time.time() - start_time)
                 return path, distances[v]
             # If current node has already been visited, skip it
             if current_distance > distances[current_node]:
@@ -339,9 +387,11 @@ class TopologicalGraph():
                     prev_nodes[neighbour] = current_node
                     # Add neighbour to heap with updated distance
                     heapq.heappush(heap, (tentative_distance, neighbour))
+        #print('Path planning time:', time.time() - start_time)
         return None, float('inf')
         
     def publish_graph(self):
+        # Publish graph for visualization
         graph_msg = MarkerArray()
         vertices_marker = Marker()
         #vertices_marker = ns = 'points_and_lines'
@@ -366,7 +416,7 @@ class TopologicalGraph():
         edges_marker.type = Marker.LINE_LIST
         edges_marker.header.frame_id = self.map_frame
         edges_marker.header.stamp = rospy.Time.now()
-        edges_marker.scale.x = 0.05
+        edges_marker.scale.x = 0.1
         edges_marker.color.r = 0
         edges_marker.color.g = 0
         edges_marker.color.b = 1
@@ -379,16 +429,33 @@ class TopologicalGraph():
                 edges_marker.points.append(Point(ux, uy, 0.05))
                 edges_marker.points.append(Point(vx, vy, 0.05))
         graph_msg.markers.append(edges_marker)
-        self.pub.publish(graph_msg)
+        self.graph_viz_pub.publish(graph_msg)
+
+        #publish graph for navigation
+        graph_msg = TopologicalGraphMessage()
+        edges = []
+        graph_msg.n_vertices = len(self.vertices)
+        for u in range(len(self.vertices)):
+            for v, rel_pose in self.adj_lists[u]:
+                edge = Edge()
+                edge.vertex_from = u
+                edge.vertex_to = v
+                edge.rel_pose = Point(rel_pose[0], rel_pose[1], 0)
+                edges.append(edge)
 
     def save_to_json(self, output_path):
+        if not os.path.exists(output_path):
+            os.mkdir(output_path)
         self.vertices = list(self.vertices)
         for i in range(len(self.vertices)):
             vertex_dict = self.vertices[i]
+            np.savez(os.path.join(output_path, '{}_grid.npz'.format(i)), vertex_dict['grid'])
+            imsave(os.path.join(output_path, '{}_img_front.png'.format(i)), vertex_dict['img_front'])
+            imsave(os.path.join(output_path, '{}_img_back.png'.format(i)), vertex_dict['img_back'])
             x, y, theta = vertex_dict['pose_for_visualization']
             descriptor = vertex_dict['descriptor']
-            self.vertices[i] = {'pose': (x, y, theta), 'descriptor': [float(x) for x in list(descriptor[0])]}
+            self.vertices[i] = {'pose_for_visualization': (x, y, theta), 'descriptor': [float(x) for x in list(descriptor[0])]}
         j = {'vertices': self.vertices, 'edges': self.adj_lists}
-        fout = open(output_path, 'w')
+        fout = open(os.path.join(output_path, 'graph.json'), 'w')
         json.dump(j, fout)
         fout.close()
