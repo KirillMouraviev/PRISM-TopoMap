@@ -460,7 +460,7 @@ class TopoSLAMModel():
             pose_on_edge = edge_poses[np.argmin(pose_diffs)]
         else:
             return
-        print('Pose on edge:', pose_on_edge)
+        print('\n\n\n                    Pose on edge:', pose_on_edge)
         old_rel_pose_of_vcur = self.rel_pose_of_vcur
         rel_pose_to_vertex = get_rel_pose(*self.rel_pose_of_vcur, *pose_on_edge)
         cur_grid_transformed = transform_grid(cur_grid, *rel_pose_to_vertex)
@@ -529,7 +529,7 @@ class TopoSLAMModel():
             if v == self.last_vertex_id:
                 continue
             pred_rel_pose_vcur_to_v = apply_pose_shift(self.rel_pose_vcur_to_loc, *self.graph.inverse_transform(*rel_poses[i]))
-            iou = get_iou(*get_rel_pose(*global_pose_for_visualization, *self.graph.get_vertex(v)['pose_for_visualization']), 
+            iou = get_iou(*pred_rel_pose_vcur_to_v,#*get_rel_pose(*global_pose_for_visualization, *self.graph.get_vertex(v)['pose_for_visualization']), 
                                 cur_grid, self.graph.get_vertex(v)['grid'], save=False)
             vx, vy, vtheta = self.graph.get_vertex(v)['pose_for_visualization']
             #print('IoU between ({}, {}) and ({}, {}) is {}'.format(x, y, vx, vy, iou))
@@ -562,7 +562,7 @@ class TopoSLAMModel():
         pose_stamped, new_rel_pose_of_vcur = self.get_rel_pose_from_stamp(timestamp)
         if self.last_vertex is not None:
             true_rel_pose = get_rel_pose(*self.last_vertex['pose_for_visualization'], *new_vertex['pose_for_visualization'])
-            self.graph.add_edge(self.last_vertex_id, new_vertex_id, *true_rel_pose)#*pose_stamped
+            self.graph.add_edge(self.last_vertex_id, new_vertex_id, *pose_stamped)
         self.rel_pose_of_vcur = new_rel_pose_of_vcur
         if self.rel_pose_vcur_to_loc is not None:
             self.rel_pose_vcur_to_loc = get_rel_pose(*pose_stamped, *self.rel_pose_vcur_to_loc)
@@ -645,7 +645,7 @@ class TopoSLAMModel():
                         pred_rel_pose_vcur_to_v = apply_pose_shift(self.rel_pose_vcur_to_loc, *self.graph.inverse_transform(*rel_poses[i]))
                         if np.sqrt(pred_rel_pose_vcur_to_v[0] ** 2 + pred_rel_pose_vcur_to_v[1] ** 2) < 5:
                             print('Add edge from {} to {} with rel pose ({}, {}, {})'.format(self.last_vertex_id, vertex_ids[i], *pred_rel_pose_vcur_to_v))
-                            self.graph.add_edge(self.last_vertex_id, vertex_ids[i], *true_rel_pose_vcur_to_v)#*pred_rel_pose_vcur_to_v)
+                            self.graph.add_edge(self.last_vertex_id, vertex_ids[i], *pred_rel_pose_vcur_to_v)
         self.mutex.release()
 
     def update_by_iou(self, global_pose_for_visualization, img_front, img_back, cur_cloud, timestamp):
@@ -663,6 +663,7 @@ class TopoSLAMModel():
                 self.add_new_vertex(timestamp, global_pose_for_visualization, 
                                     img_front, img_back, cur_cloud,
                                     [], [])
+        changed = self.reattach_by_edge(cur_grid, timestamp)
         last_x, last_y, _ = self.last_vertex['pose_for_visualization']
         in_sight = self.is_in_sight()
         iou = get_iou(*self.rel_pose_of_vcur, self.last_vertex['grid'], cur_grid, save=True, cnt=self.iou_cnt)
@@ -673,11 +674,8 @@ class TopoSLAMModel():
         if in_sight is None:
             print('Failed to check straight-line visibility!')
             return
-        #print('Path:', self.path)
         #print('Vcur:', self.last_vertex_id)
-        if len(self.path) > 1 and self.path[0] == self.last_vertex_id:
-            self.reattach_by_edge(cur_grid, timestamp, target_vertex_id=self.path[1])
-        elif not in_sight or iou < self.iou_threshold:
+        if not in_sight or iou < self.iou_threshold:
             self.mutex.acquire()
             if not in_sight:
                 print('Out of visibility')
@@ -685,7 +683,6 @@ class TopoSLAMModel():
                 print('Low IoU')
             #print('Last localization {} seconds ago'.format(rospy.Time.now().to_sec() - self.localization_time))
             #print(self.path[0], self.last_vertex_id)
-            changed = self.reattach_by_edge(cur_grid, timestamp)
             if not changed:
                 if rospy.Time.now().to_sec() - self.localization_time < 5:
                     #print('Localized stamp:', self.localizer.localized_stamp)

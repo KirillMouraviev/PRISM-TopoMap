@@ -33,12 +33,12 @@ def get_place_recognition_model(config):
 def get_registration_model(config):
     reg_model_type = config['model']
     if reg_model_type == 'feature2d':
+        print('Save dir:', config.get('save_dir', None))
         return Feature2DGlobalRegistrationPipeline(voxel_downsample_size=config['voxel_downsample_size'], 
                                                    detector_type=config['detector_type'], 
                                                    min_matches=config['min_matches'],
                                                    outlier_thresholds=config['outlier_thresholds'],
-                                                   #max_range=config['max_point_cloud_range'],
-                                                   save_dir='/home/kirill/TopoSLAM/OpenPlaceRecognition/test_registration')
+                                                   save_dir=config.get('save_dir', None))
     elif reg_model_type == 'geotransformer':
         REGISTRATION_MODEL_CONFIG_PATH = config['model_config_path']
         REGISTRATION_WEIGHTS_PATH = config['weights_path']

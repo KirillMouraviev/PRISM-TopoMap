@@ -148,9 +148,10 @@ def get_iou(rel_x, rel_y, rel_theta, cur_grid, v_grid, save=False, cnt=0):
         return 0
     cur_grid_transformed = transform_grid(cur_grid, rel_x, rel_y, rel_theta)
     cur_grid_transformed[cur_grid_transformed > 0] = 1
-    v_grid[v_grid > 0] = 1
-    intersection = np.sum(v_grid * cur_grid_transformed)
-    union = np.sum(v_grid | cur_grid_transformed)
+    v_grid_copy = v_grid.copy()
+    v_grid_copy[v_grid_copy > 0] = 1
+    intersection = np.sum(v_grid_copy * cur_grid_transformed)
+    union = np.sum(v_grid_copy | cur_grid_transformed)
     grid_aligned = np.zeros((v_grid.shape[0], v_grid.shape[1], 3))
     grid_aligned[:, :, 0] = cur_grid_transformed
     grid_aligned[:, :, 1] = v_grid

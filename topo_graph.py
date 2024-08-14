@@ -4,6 +4,7 @@ import heapq
 import numpy as np
 import time
 import os
+import copy
 import ros_numpy
 from visualization_msgs.msg import Marker, MarkerArray
 from geometry_msgs.msg import Point
@@ -127,6 +128,7 @@ class TopologicalGraph():
                      }
             batch = self._preprocess_input(input_data)
             descriptor = self.place_recognition_model(batch)["final_descriptor"].detach().cpu().numpy()
+            #descriptor = np.random.random(256)
             if len(descriptor.shape) == 1:
                 descriptor = descriptor[np.newaxis, :]
             grid = get_occupancy_grid(cloud[:, :3])
@@ -188,7 +190,7 @@ class TopologicalGraph():
 
     def get_tf_matrix(self, transform_for_grid):
         trans_i, trans_j, rot_angle = transform_for_grid
-        print('Trans i trans j rot angle:', trans_i, trans_j, rot_angle)
+        #print('Trans i trans j rot angle:', trans_i, trans_j, rot_angle)
         plus8 = np.eye(4)
         max_range = 18
         grid_size = 0.1
@@ -204,7 +206,7 @@ class TopologicalGraph():
             [0,                  0,                 0, 1]
         ])
         tf_matrix = minus8 @ tf_matrix @ plus8
-        print('Translation from tf matrix:', tf_matrix[:, 3])
+        #print('Translation from tf matrix:', tf_matrix[:, 3])
         return tf_matrix
 
     def get_k_most_similar(self, img_front, img_back, cloud, stamp, k=1):
@@ -246,6 +248,7 @@ class TopologicalGraph():
         t3 = time.time()
         #print('Preprocessing time:', t3 - t2)
         descriptor = self.place_recognition_model(batch)["final_descriptor"].detach().cpu().numpy()
+        #descriptor = np.random.random(256)
         if len(descriptor.shape) == 1:
             descriptor = descriptor[np.newaxis, :]
         reg_scores = []
@@ -301,11 +304,12 @@ class TopologicalGraph():
         return pred_i, pred_i_filtered, np.array(pred_tf), pr_scores, reg_scores
 
     def get_transform_to_vertex(self, vertex_id, grid):
-        return get_rel_pose(*self.global_pose_for_visualization, *self.vertices[vertex_id]['pose_for_visualization'])
-        """
+        #return get_rel_pose(*self.global_pose_for_visualization, *self.vertices[vertex_id]['pose_for_visualization'])
         cand_grid = self.vertices[vertex_id]['grid']
         cand_grid_tensor = torch.Tensor(cand_grid).to(self.device)
         ref_grid_tensor = torch.Tensor(grid).to(self.device)
+        #print('                Ref grid:', grid.max())
+        #print('                Cand grid:', cand_grid.max())
         transform, score = self.inline_registration_pipeline.infer(ref_grid_tensor, cand_grid_tensor)
         if score > self.inline_registration_score_threshold:
             tf_matrix = self.get_tf_matrix(transform)
@@ -314,7 +318,6 @@ class TopologicalGraph():
             _, __, theta = Rotation.from_matrix(tf_matrix[:3, :3]).as_rotvec()
             return x, y, theta
         return None, None, None
-        """
 
     def inverse_transform(self, x, y, theta):
         x_inv = -x * np.cos(theta) - y * np.sin(theta)
@@ -414,8 +417,7 @@ class TopologicalGraph():
         edges_marker = Marker()
         edges_marker.id = 1
         edges_marker.type = Marker.LINE_LIST
-        edges_marker.header.frame_id = self.map_frame
-        edges_marker.header.stamp = rospy.Time.now()
+        edges_marker.header = vertices_marker.header
         edges_marker.scale.x = 0.1
         edges_marker.color.r = 0
         edges_marker.color.g = 0
@@ -429,19 +431,60 @@ class TopologicalGraph():
                 edges_marker.points.append(Point(ux, uy, 0.05))
                 edges_marker.points.append(Point(vx, vy, 0.05))
         graph_msg.markers.append(edges_marker)
-        self.graph_viz_pub.publish(graph_msg)
 
-        #publish graph for navigation
-        graph_msg = TopologicalGraphMessage()
-        edges = []
-        graph_msg.n_vertices = len(self.vertices)
+        vertex_orientation_marker = Marker()
+        vertex_orientation_marker.id = 2
+        vertex_orientation_marker.type = Marker.LINE_LIST
+        vertex_orientation_marker.header = vertices_marker.header
+        vertex_orientation_marker.scale.x = 0.05
+        vertex_orientation_marker.color.r = 1
+        vertex_orientation_marker.color.g = 0
+        vertex_orientation_marker.color.b = 0
+        vertex_orientation_marker.color.a = 1
+        vertex_orientation_marker.pose.orientation.w = 1
+        for vertex_dict in self.vertices:
+            x, y, theta = vertex_dict['pose_for_visualization']
+            vertex_orientation_marker.points.append(Point(x, y, 0.1))
+            vertex_orientation_marker.points.append(Point(x + np.cos(theta) * 0.5, y + np.sin(theta) * 0.5, 0.05))
+        graph_msg.markers.append(vertex_orientation_marker)
+
+        cnt = 3
+        text_marker = Marker()
+        text_marker.header = vertices_marker.header
+        text_marker.type = Marker.TEXT_VIEW_FACING
+        text_marker.scale.z = 0.4
+        text_marker.color.r = 1
+        text_marker.color.g = 0.5
+        text_marker.color.b = 0
+        text_marker.color.a = 1
+        text_marker.pose.position.z = 0.5
+        text_marker.pose.orientation.w = 1
+        for i, vertex_dict in enumerate(self.vertices):
+            x, y, theta = vertex_dict['pose_for_visualization']
+            text_marker.id = cnt
+            text_marker.pose.position.x = x
+            text_marker.pose.position.y = y
+            text_marker.text = '{}: ({}, {}, {})'.format(i, round(x, 1), round(y, 1), round(theta, 2))
+            graph_msg.markers.append(copy.deepcopy(text_marker))
+            cnt += 1
+        text_marker.scale.z = 0.3
+        text_marker.color.r = 0
+        text_marker.color.g = 1
+        text_marker.color.b = 1
         for u in range(len(self.vertices)):
-            for v, rel_pose in self.adj_lists[u]:
-                edge = Edge()
-                edge.vertex_from = u
-                edge.vertex_to = v
-                edge.rel_pose = Point(rel_pose[0], rel_pose[1], 0)
-                edges.append(edge)
+            for v, pose in self.adj_lists[u]:
+                if u >= v:
+                    continue
+                ux, uy, _ = self.vertices[u]['pose_for_visualization']
+                vx, vy, _ = self.vertices[v]['pose_for_visualization']
+                text_marker.id = cnt
+                text_marker.pose.position.x = (ux + vx) / 2
+                text_marker.pose.position.y = (uy + vy) / 2
+                text_marker.text = '({}, {}, {})'.format(round(pose[0], 1), round(pose[1], 1), round(pose[2], 2))
+                graph_msg.markers.append(copy.deepcopy(text_marker))
+                cnt += 1
+
+        self.graph_viz_pub.publish(graph_msg)
 
     def save_to_json(self, output_path):
         if not os.path.exists(output_path):

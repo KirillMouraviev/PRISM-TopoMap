@@ -32,6 +32,7 @@ scan_matching:
   max_point_cloud_range: 8.0
   voxel_downsample_size: 0.1
   min_matches: 5
+  #save_dir: /home/kirill/TopoSLAM/OpenPlaceRecognition/test_registration
 scan_matching_along_edge:
   model: feature2d
   detector_type: HarrisWithDistance
@@ -40,6 +41,7 @@ scan_matching_along_edge:
   max_point_cloud_range: 8.0
   voxel_downsample_size: 0.1
   min_matches: 5
+  #save_dir: /home/kirill/TopoSLAM/OpenPlaceRecognition/test_inline_registration
 visualization:
   publish_gt_map: true
   map_frame: map
