@@ -99,10 +99,13 @@ class Localizer():
         self.first_pr_publisher.publish(vertices_marker)
 
         # Publish top-1 PlaceRecognition image
-        img_msg = self.bridge.cv2_to_imgmsg(img_front)
-        img_msg.encoding = 'rgb8'
-        img_msg.header.stamp = rospy.Time.now()
-        self.first_pr_image_publisher.publish(img_msg)
+        try:
+            img_msg = self.bridge.cv2_to_imgmsg(img_front)
+            img_msg.encoding = 'rgb8'
+            img_msg.header.stamp = rospy.Time.now()
+            self.first_pr_image_publisher.publish(img_msg)
+        except:
+            pass
 
         # Publish matched vertices
         vertices_marker = Marker()

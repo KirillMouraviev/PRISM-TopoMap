@@ -26,6 +26,7 @@ from toposlam_msgs.msg import Edge
 from toposlam_msgs.msg import TopologicalGraph as TopologicalGraphMessage
 from utils import get_occupancy_grid, get_rel_pose
 
+from memory_profiler import profile
 
 class TopologicalGraph():
     def __init__(self,
@@ -99,12 +100,13 @@ class TopologicalGraph():
         for i in range(len(self.vertices)):
             grid = np.load(os.path.join(input_path, '{}_grid.npz'.format(i)))['arr_0']
             self.vertices[i]['grid'] = grid
-            img_front = imread(os.path.join(input_path, '{}_img_front.png'.format(i)))
-            self.vertices[i]['img_front'] = img_front
-            img_back = imread(os.path.join(input_path, '{}_img_back.png'.format(i)))
-            self.vertices[i]['img_back'] = img_back
+            #img_front = imread(os.path.join(input_path, '{}_img_front.png'.format(i)))
+            #self.vertices[i]['img_front'] = img_front
+            #img_back = imread(os.path.join(input_path, '{}_img_back.png'.format(i)))
+            #self.vertices[i]['img_back'] = img_back
             self.index.add(np.array(self.vertices[i]['descriptor'])[np.newaxis, :])
 
+    #@profile
     def add_vertex(self, global_pose_for_visualization, img_front, img_back, cloud=None):
         x, y, theta = global_pose_for_visualization
         print('Add new vertex ({}, {}, {}) with idx {}'.format(x, y, theta, len(self.vertices)))
@@ -154,8 +156,8 @@ class TopologicalGraph():
         pose_stamped = np.array([vertex_dict['stamp'].to_sec()] + vertex_dict['pose_for_visualization'])
         #print('Pose stamped:', pose_stamped)
         np.savetxt(os.path.join(save_dir, 'pose_stamped.txt'), pose_stamped)
-        imsave(os.path.join(save_dir, 'img_front.png'), vertex_dict['img_front'])
-        imsave(os.path.join(save_dir, 'img_back.png'), vertex_dict['img_back'])
+        #imsave(os.path.join(save_dir, 'img_front.png'), vertex_dict['img_front'])
+        #imsave(os.path.join(save_dir, 'img_back.png'), vertex_dict['img_back'])
         np.savez(os.path.join(save_dir, 'grid.npz'), vertex_dict['grid'])
         np.savetxt(os.path.join(save_dir, 'descriptor.txt'), vertex_dict['descriptor'])
         edges = []
@@ -209,6 +211,7 @@ class TopologicalGraph():
         #print('Translation from tf matrix:', tf_matrix[:, 3])
         return tf_matrix
 
+    #@profile
     def get_k_most_similar(self, img_front, img_back, cloud, stamp, k=1):
         t1 = time.time()
         img_front_tensor = torch.Tensor(img_front).cuda()
@@ -493,8 +496,8 @@ class TopologicalGraph():
         for i in range(len(self.vertices)):
             vertex_dict = self.vertices[i]
             np.savez(os.path.join(output_path, '{}_grid.npz'.format(i)), vertex_dict['grid'])
-            imsave(os.path.join(output_path, '{}_img_front.png'.format(i)), vertex_dict['img_front'])
-            imsave(os.path.join(output_path, '{}_img_back.png'.format(i)), vertex_dict['img_back'])
+            #imsave(os.path.join(output_path, '{}_img_front.png'.format(i)), vertex_dict['img_front'])
+            #imsave(os.path.join(output_path, '{}_img_back.png'.format(i)), vertex_dict['img_back'])
             x, y, theta = vertex_dict['pose_for_visualization']
             descriptor = vertex_dict['descriptor']
             self.vertices[i] = {'pose_for_visualization': (x, y, theta), 'descriptor': [float(x) for x in list(descriptor[0])]}
