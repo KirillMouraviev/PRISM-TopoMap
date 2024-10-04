@@ -98,6 +98,8 @@ class TopoSLAMModel():
         self.iou_threshold = topomap_config['iou_threshold']
         self.localization_frequency = topomap_config['localization_frequency']
         self.rel_pose_correction_frequency = topomap_config['rel_pose_correction_frequency']
+        self.max_edge_length = topomap_config['max_edge_length']
+        # Input
         pointcloud_config = config['input']['pointcloud']
         self.floor_height = pointcloud_config['floor_height']
         self.ceil_height = pointcloud_config['ceiling_height']
@@ -116,7 +118,8 @@ class TopoSLAMModel():
         visualization_config = config['visualization']
         self.publish_gt_map_flag = visualization_config['publish_gt_map']
         if self.publish_gt_map_flag:
-            self.gt_map = GTMap(self.path_to_gt_map)
+            gt_map_filename = [fn for fn in os.listdir(self.path_to_gt_map) if fn.startswith('map_cropped_')][0]
+            self.gt_map = GTMap(os.path.join(self.path_to_gt_map, gt_map_filename))
         else:
             self.gt_map = None
         self.map_frame = visualization_config['map_frame']
@@ -137,7 +140,11 @@ class TopoSLAMModel():
         # GT pose for visualization and evaluation
         gt_pose_config = input_config['gt_pose']
         pose_topic = gt_pose_config['topic']
-        self.pose_subscriber = rospy.Subscriber(pose_topic, PoseStamped, self.gt_pose_callback)
+        topic_type = gt_pose_config['type']
+        if topic_type == 'PoseStamped':
+            self.pose_subscriber = rospy.Subscriber(pose_topic, PoseStamped, self.gt_pose_callback)
+        else:
+            self.pose_subscriber = rospy.Subscriber(pose_topic, Odometry, self.gt_odom_pose_callback)
         # Images
         front_image_config = input_config['image_front']
         front_image_topic = front_image_config['topic']
@@ -184,6 +191,12 @@ class TopoSLAMModel():
         _, __, theta = tf.transformations.euler_from_quaternion([orientation.x, orientation.y, orientation.z, orientation.w])
         self.gt_poses.append([msg.header.stamp.to_sec(), x, y, theta])
 
+    def gt_odom_pose_callback(self, msg):
+        x, y = msg.pose.pose.position.x, msg.pose.pose.position.y
+        orientation = msg.pose.pose.orientation
+        _, __, theta = tf.transformations.euler_from_quaternion([orientation.x, orientation.y, orientation.z, orientation.w])
+        self.gt_poses.append([msg.header.stamp.to_sec(), x, y, theta])
+
     def odom_callback(self, msg):
         x, y = msg.pose.pose.position.x, msg.pose.pose.position.y
         orientation = msg.pose.pose.orientation
@@ -210,27 +223,31 @@ class TopoSLAMModel():
             return
         if self.cur_grid is None:
             return
-        #self.mutex.acquire()
+        self.mutex.acquire()
         rel_x_old, rel_y_old, rel_theta_old = self.get_rel_pose_from_stamp(self.cur_stamp)[0]
         cur_grid_transformed = transform_grid(self.cur_grid, rel_x_old, rel_y_old, -rel_theta_old)
         x, y, theta = self.graph.get_transform_to_vertex(self.last_vertex_id, cur_grid_transformed)
-        print(self.get_rel_pose_from_stamp(self.cur_stamp))
+        # print(self.get_rel_pose_from_stamp(self.cur_stamp))
         true_rel_pose = get_rel_pose(*self.last_vertex['pose_for_visualization'], *self.cur_global_pose)
-        print('True rel pose:', true_rel_pose)
-        print('Rel pose of vcur:', self.rel_pose_of_vcur)
-        print('True correction:', get_rel_pose(*self.rel_pose_of_vcur, *true_rel_pose))
-        print('Found pose:', x, y, theta)
-        if x is not None:
-            n_inv_v_a = apply_pose_shift(self.graph.inverse_transform(*self.rel_pose_of_vcur), x, y, theta)
-            est_x, est_y, est_theta = apply_pose_shift(n_inv_v_a, *self.rel_pose_of_vcur)
+        # print('True rel pose:', true_rel_pose)
+        # print('Old rel pose:', rel_x_old, rel_y_old, rel_theta_old)
+        # print('Rel pose of vcur:', self.rel_pose_of_vcur)
+        # print('True correction:', get_rel_pose(*self.rel_pose_of_vcur, *true_rel_pose))
+        # print('Found pose:', x, y, theta)
+        if x is not None and np.sqrt(x ** 2 + y ** 2) < 0.5:
+            a_inv_v_inv_n = apply_pose_shift((x, y, theta), *self.rel_pose_of_vcur)
+            #est_x, est_y, est_theta = apply_pose_shift(n_inv_v_a, *self.rel_pose_of_vcur)
             #est_x, est_y, _  = apply_pose_shift([0, 0, -self.rel_pose_of_vcur[2]], x, y, 0)
-            print('Estimated correction:', est_x, est_y, est_theta)
-            corrected_pose = apply_pose_shift(self.rel_pose_of_vcur, est_x, est_y, theta)
-            #print('Corrected pose:', corrected_pose)
-            #self.rel_pose_of_vcur = corrected_pose
-        #self.mutex.release()
+            #print('Estimated correction:', est_x, est_y, est_theta)
+            corrected_pose = a_inv_v_inv_n#apply_pose_shift(self.rel_pose_of_vcur, est_x, est_y, theta)
+            # print('Corrected pose:', corrected_pose)
+            self.rel_pose_of_vcur = corrected_pose
+        # else:
+            # print('Failed to correct rel pose!')
+        self.mutex.release()
 
-    def check_path_condition(self, u, v):
+    def check_path_condition(self, u, v, estimated_transform=None):
+        print('Checking path condition between {} and {}'.format(u, v))
         path, path_length = self.graph.get_path_with_length(u, v)
         if path is None:
             return True
@@ -242,12 +259,20 @@ class TopoSLAMModel():
         rel_pose_along_path = [0, 0, 0]
         for i in range(1, len(path)):
             rel_pose_along_path = apply_pose_shift(rel_pose_along_path, *self.graph.get_edge(path[i - 1], path[i]))
-        if path_length < 8:
-            return True
-        #print('Path length to vertex {} is {}'.format(v, path_length))
+        # if path_length < 8:
+        #     return True
+        print('Path length to vertex {} is {}'.format(v, path_length))
         straight_length = np.sqrt(rel_pose_along_path[0] ** 2 + rel_pose_along_path[1] ** 2)
-        #print('Straight length:', straight_length)
-        if path_length > 3 * straight_length:#straight_length < 8:
+        print('Straight length:', straight_length)
+        if path_length > 3 * straight_length or straight_length < 5:
+            # if estimated_transform is not None:
+            #     print('Rel pose along path:', rel_pose_along_path)
+            #     print('Estimated transform:', estimated_transform)
+            #     diff = np.array(estimated_transform) - np.array(rel_pose_along_path)
+            #     error = np.sqrt(diff[0] ** 2 + diff[1] ** 2)
+            #     print('Abs diff:', error)
+            #     print('Rel diff:', error / straight_length)
+            #     return error < 3 or error / straight_length < 0.6 + 0.5 - 1 / len(path)
             return True
         return False
 
@@ -313,7 +338,7 @@ class TopoSLAMModel():
                 if path is None:
                     continue
                 dst_through_cur = dists[i] + dists[j]
-                if path_len > 5 and path_len > 2 * dst_through_cur:
+                if path_len > 5 and path_len > 2 * dst_through_cur and self.check_path_condition(u, v):
                     #ux, uy, _ = self.graph.get_vertex(u)['pose_for_visualization']
                     #vx, vy, _ = self.graph.get_vertex(v)['pose_for_visualization']
                     #print('u:', ux, uy)
@@ -567,26 +592,27 @@ class TopoSLAMModel():
             nearest_vertex_id = neighbours[np.argmin(pose_diffs)]
             pose_on_edge = edge_poses[np.argmin(pose_diffs)]
         else:
-            return
+            return False
         print('\n\n\n                    Pose on edge:', pose_on_edge)
         old_rel_pose_of_vcur = self.rel_pose_of_vcur
         rel_pose_to_vertex = get_rel_pose(*self.rel_pose_of_vcur, *pose_on_edge)
         cur_grid_transformed = transform_grid(cur_grid, *rel_pose_to_vertex)
         x, y, theta = self.graph.get_transform_to_vertex(nearest_vertex_id, cur_grid_transformed)
-        if x is not None:
-            changed = True
-            print('Change to vertex {} by edge'.format(nearest_vertex_id))
-            print('Old transform:', rel_pose_to_vertex)
-            print('Scan matching transform:', x, y, theta)
-            self.last_vertex_id = nearest_vertex_id
-            self.last_vertex = self.graph.get_vertex(self.last_vertex_id)
-            #self.rel_pose_of_vcur = self.graph.inverse_transform(x, y, theta)
-            self.rel_pose_of_vcur = self.graph.inverse_transform(*rel_pose_to_vertex)
-            if self.rel_pose_vcur_to_loc is not None:
-                self.rel_pose_vcur_to_loc = apply_pose_shift(self.graph.inverse_transform(*pose_on_edge), *self.rel_pose_vcur_to_loc)
-            self.rel_poses_stamped = [[self.current_stamp] + self.rel_pose_of_vcur]
-        else:
-            print('Failed to match current cloud to vertex {}!'.format(nearest_vertex_id))
+        # if x is not None:
+        changed = True
+        print('\n\n\n Change to vertex {} by edge \n\n\n'.format(nearest_vertex_id))
+        print('Old transform:', rel_pose_to_vertex)
+        print('Scan matching transform:', x, y, theta)
+        self.last_vertex_id = nearest_vertex_id
+        self.last_vertex = self.graph.get_vertex(self.last_vertex_id)
+        #self.rel_pose_of_vcur = self.graph.inverse_transform(x, y, theta)
+        self.rel_pose_of_vcur = self.graph.inverse_transform(*rel_pose_to_vertex)
+        if self.rel_pose_vcur_to_loc is not None:
+            self.rel_pose_vcur_to_loc = apply_pose_shift(self.graph.inverse_transform(*pose_on_edge), *self.rel_pose_vcur_to_loc)
+        self.rel_poses_stamped = [[self.current_stamp] + self.rel_pose_of_vcur]
+        # else:
+            # print('Failed to match current cloud to vertex {}!'.format(nearest_vertex_id))
+
         return changed
 
     def reattach_by_localization(self, global_pose_for_visualization, iou_threshold, cur_grid, timestamp):
@@ -607,7 +633,7 @@ class TopoSLAMModel():
             #print('IoU between ({}, {}) and ({}, {}) is {}'.format(x, y, vx, vy, iou))
             if iou > iou_threshold:
                 found_proper_vertex = True
-                print('Change to vertex ({}, {})'.format(vx, vy))
+                print('\n\n\n Change to vertex {} with coords ({}, {})\n\n\n'.format(v, vx, vy))
                 #last_x, last_y, last_theta = self.last_vertex['pose_for_visualization']
                 self.graph.add_edge(self.last_vertex_id, v, *pred_rel_pose_vcur_to_v)
                 self.last_vertex_id = v
@@ -668,17 +694,19 @@ class TopoSLAMModel():
         rel_poses[:, 2] = msg.data[3 * n:4 * n]
         dists = np.sqrt(rel_poses[:, 0] ** 2 + rel_poses[:, 1] ** 2)
         vertex_ids_refined = []
-        for vertex_id in vertex_ids:
+        self.rel_pose_vcur_to_loc, _ = self.get_rel_pose_from_stamp(self.localizer.localized_stamp)
+        for vertex_id, rel_pose in zip(vertex_ids, rel_poses):
             #x, y, theta = get_rel_pose(*self.last_vertex['pose_for_visualization'], *self.graph.get_vertex(vertex_id)['pose_for_visualization'])
             #dst = np.sqrt(x ** 2 + y ** 2)
-            if self.check_path_condition(self.last_vertex_id, vertex_id):
+            if self.check_path_condition(self.last_vertex_id, vertex_id, apply_pose_shift(self.rel_pose_vcur_to_loc, \
+                                         *self.graph.inverse_transform(*rel_pose))):
             #if dst < 8:
                 vertex_ids_refined.append(vertex_id)
             else:
                 print('Remove vertex {} from localization, it is too far'.format(vertex_id))
         vertex_ids = vertex_ids_refined
         self.localization_results = (vertex_ids, rel_poses)
-        print('Localized in vertices', vertex_ids)
+        print('\n\nLocalized in vertices', vertex_ids, '\n\n')
         self.localization_pose = [self.localizer.localized_x, self.localizer.localized_y, self.localizer.localized_theta]
         x = self.localizer.localized_x
         y = self.localizer.localized_y
@@ -693,7 +721,6 @@ class TopoSLAMModel():
             self.mutex.release()
             return
         self.localization_time = rospy.Time.now().to_sec()
-        self.rel_pose_vcur_to_loc, _ = self.get_rel_pose_from_stamp(self.localizer.localized_stamp)
         if self.last_vertex is None:
             print('Initially attached to vertex {} from localization'.format(vertex_ids[0]))
             self.last_vertex_id = vertex_ids[0]
@@ -716,7 +743,7 @@ class TopoSLAMModel():
                         #true_rel_pose_vcur_to_v = get_rel_pose(*self.last_vertex['pose_for_visualization'], *self.graph.get_vertex(i)['pose_for_visualization'])
                         pred_rel_pose_vcur_to_v = apply_pose_shift(self.rel_pose_vcur_to_loc, *self.graph.inverse_transform(*rel_poses[i]))
                         if np.sqrt(pred_rel_pose_vcur_to_v[0] ** 2 + pred_rel_pose_vcur_to_v[1] ** 2) < 5:
-                            print('Add edge from {} to {} with rel pose ({}, {}, {})'.format(self.last_vertex_id, vertex_ids[i], *pred_rel_pose_vcur_to_v))
+                            print('\nAdd edge from {} to {} with rel pose ({}, {}, {})\n'.format(self.last_vertex_id, vertex_ids[i], *pred_rel_pose_vcur_to_v))
                             self.graph.add_edge(self.last_vertex_id, vertex_ids[i], *pred_rel_pose_vcur_to_v)
         self.mutex.release()
 
@@ -740,21 +767,26 @@ class TopoSLAMModel():
         changed = self.reattach_by_edge(cur_grid, timestamp)
         #last_x, last_y, _ = self.last_vertex['pose_for_visualization']
         in_sight = self.is_in_sight()
+        # print('Rel pose of vcur:', self.rel_pose_of_vcur)
+        # print('Iou cnt:', self.iou_cnt)
         iou = get_iou(*self.rel_pose_of_vcur, self.last_vertex['grid'], cur_grid, save=True, cnt=self.iou_cnt)
         self.iou_cnt += 1
         self.cur_iou = iou
         #print('In sight:', in_sight)
-        #print('IoU:', iou)
+        # print('IoU:', iou)
         if in_sight is None:
             print('Failed to check straight-line visibility!')
             return
         #print('Vcur:', self.last_vertex_id)
-        if not in_sight or iou < self.iou_threshold:
+        dst = np.sqrt(self.rel_pose_of_vcur[0] ** 2 + self.rel_pose_of_vcur[1] ** 2)
+        if not in_sight or iou < self.iou_threshold or dst > self.max_edge_length:
             self.mutex.acquire()
             if not in_sight:
                 print('Out of visibility')
+            elif iou < self.iou_threshold:
+                print('Low IoU {}'.format(iou))
             else:
-                print('Low IoU')
+                print('Too far from location center')
             #print('Last localization {} seconds ago'.format(rospy.Time.now().to_sec() - self.localization_time))
             #print(self.path[0], self.last_vertex_id)
             if not changed:
@@ -815,11 +847,11 @@ class TopoSLAMModel():
         self.localizer.img_back = cur_img_back
         self.localizer.cloud = cur_cloud
         self.localizer.stamp = msg.header.stamp
-        #start_time = time.time()
+        start_time = time.time()
         self.update_by_iou(cur_global_pose, cur_img_front, cur_img_back, cur_cloud, msg.header.stamp)
-        #print('Update by iou time:', time.time() - start_time)
+        # print('Update by iou time:', time.time() - start_time)
 
-    def save_graph(self, save_dir='src/simple_toposlam_model/grids'):
+    def save_graph(self):
         self.graph.save_to_json(self.path_to_save_json)
         print('N of localizer calls:', self.localizer.cnt)
         print('N of localization fails:', self.localizer.n_loc_fails)

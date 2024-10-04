@@ -144,8 +144,8 @@ def get_iou(rel_x, rel_y, rel_theta, cur_grid, v_grid, save=False, cnt=0):
     rel_x_rotated = -rel_x * np.cos(rel_theta) - rel_y * np.sin(rel_theta)
     rel_y_rotated = rel_x * np.sin(rel_theta) - rel_y * np.cos(rel_theta)
     rel_x, rel_y = rel_x_rotated, rel_y_rotated
-    if np.sqrt(rel_x ** 2 + rel_y ** 2) > 5:
-        return 0
+    # if np.sqrt(rel_x ** 2 + rel_y ** 2) > 5:
+    #     return 0
     cur_grid_transformed = transform_grid(cur_grid, rel_x, rel_y, rel_theta)
     cur_grid_transformed[cur_grid_transformed > 0] = 1
     v_grid_copy = v_grid.copy()

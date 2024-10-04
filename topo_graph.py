@@ -109,7 +109,7 @@ class TopologicalGraph():
     #@profile
     def add_vertex(self, global_pose_for_visualization, img_front, img_back, cloud=None):
         x, y, theta = global_pose_for_visualization
-        print('Add new vertex ({}, {}, {}) with idx {}'.format(x, y, theta, len(self.vertices)))
+        print('\n\n\n Add new vertex ({}, {}, {}) with idx {} \n\n\n'.format(x, y, theta, len(self.vertices)))
         self.adj_lists.append([])
         if cloud is not None:
             img_front_transformed = self.image_transform(img_front)
@@ -335,7 +335,7 @@ class TopologicalGraph():
             return
         xi, yi, _ = self.vertices[i]['pose_for_visualization']
         xj, yj, _ = self.vertices[j]['pose_for_visualization']
-        print('Add edge from ({}, {}) to ({}, {})'.format(xi, yi, xj, yj))
+        print('\nAdd edge from ({}, {}) to ({}, {}) with rel pose ({}, {}, {})\n'.format(xi, yi, xj, yj, x, y, theta))
         self.adj_lists[i].append((j, [x, y, theta]))
         self.adj_lists[j].append((i, self.inverse_transform(x, y, theta)))
 
