@@ -96,10 +96,6 @@ class TopoSLAMModel():
         rospy.Timer(rospy.Duration(self.rel_pose_correction_frequency), self.correct_rel_pose)
         self.mutex = Lock()
 
-        self.robot_poses_habitat = []
-        self.robot_pose_habitat_stamps = []
-        self.vertex_poses_habitat = []
-
     def init_params_from_config(self, config):
         # TopoMap
         topomap_config = config['topomap']
@@ -176,8 +172,6 @@ class TopoSLAMModel():
         self.local_grid_publisher = rospy.Publisher('/local_grid', OccupancyGrid, latch=True, queue_size=100)
         self.cur_grid_publisher = rospy.Publisher('/current_grid', OccupancyGrid, latch=True, queue_size=100)
         self.cur_grid_transformed_publisher = rospy.Publisher('/current_grid_transformed', OccupancyGrid, latch=True, queue_size=100)
-        # Robot pose in habitat coords
-        self.robot_pose_sub = rospy.Subscriber('/robot_pose_in_habitat_coords', PoseStamped, self.robot_pose_habitat_callback)
 
     def publish_gt_map(self):
         gt_map_msg = OccupancyGrid()
@@ -201,12 +195,6 @@ class TopoSLAMModel():
         gt_map_data[gt_map_ravel == 255] = 0
         gt_map_msg.data = list(gt_map_data)
         self.gt_map_publisher.publish(gt_map_msg)
-
-    def robot_pose_habitat_callback(self, msg):
-        x, y, z = msg.pose.position.x, msg.pose.position.y, msg.pose.position.z
-        robot_pose_in_habitat_coords = [x, y, z]
-        self.robot_poses_habitat.append(robot_pose_in_habitat_coords)
-        self.robot_pose_habitat_stamps.append(msg.header.stamp.to_sec())
 
     def gt_pose_callback(self, msg):
         x, y, z = msg.pose.position.x, msg.pose.position.y, msg.pose.position.z
@@ -709,21 +697,6 @@ class TopoSLAMModel():
         self.last_vertex = new_vertex
         self.graph.save_vertex(new_vertex_id)
 
-        assert len(self.robot_poses_habitat) > 0
-        i = 0
-        while i < len(self.robot_pose_habitat_stamps) and self.robot_pose_habitat_stamps[i] < timestamp.to_sec():
-            i += 1
-        if i >= len(self.robot_pose_habitat_stamps):
-            vertex_pose_in_habitat_coords = np.array(self.robot_poses_habitat[-1])
-        elif i == 0:
-            vertex_pose_in_habitat_coords = np.array(self.robot_poses_habitat[0])
-        else:
-            alpha = (timestamp.to_sec() - self.robot_pose_habitat_stamps[i - 1]) / \
-                    (self.robot_pose_habitat_stamps[i] - self.robot_pose_habitat_stamps[i - 1])
-            vertex_pose_in_habitat_coords = alpha * np.array(self.robot_poses_habitat[i - 1]) + \
-                                            (1 - alpha) * np.array(self.robot_poses_habitat[i])
-        self.vertex_poses_habitat.append(vertex_pose_in_habitat_coords)
-
     def localization_callback(self, msg):
         #self.publish_cur_cloud()
         self.mutex.acquire()
@@ -904,7 +877,6 @@ class TopoSLAMModel():
         self.graph.save_to_json(self.path_to_save_json)
         print('N of localizer calls:', self.localizer.cnt)
         print('N of localization fails:', self.localizer.n_loc_fails)
-        np.savetxt(os.path.join(self.path_to_save_json, 'vertex_poses_habitat.txt'), self.vertex_poses_habitat)
 
     def run(self):
         rospy.spin()
