@@ -59,7 +59,7 @@ class Localizer():
             if idx >= 0:
                 vertex_dict = self.graph.vertices[idx]
                 x, y, theta = vertex_dict['pose_for_visualization']
-                grid = vertex_dict['grid']
+                grid = vertex_dict['grid'].grid
                 #print('GT x, y, theta:', x, y, theta)
                 np.savetxt(os.path.join(save_dir, 'cand_grid_{}.txt'.format(idx)), grid)
                 if tf is not None:

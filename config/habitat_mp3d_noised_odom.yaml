@@ -17,7 +17,7 @@ input:
     topic: /habitat/rgb3/image
     color: rgb
 topomap:
-  iou_threshold: 0.4
+  iou_threshold: 0.3
   max_edge_length: 5.0
   localization_frequency: 3.0
   rel_pose_correction_frequency: 1.0
@@ -27,6 +27,10 @@ place_recognition:
   weights_path: /home/kirill/TopoSLAM/OpenPlaceRecognition/weights/place_recognition/minkloc3d_nclt.pth
   model_config_path: /home/kirill/TopoSLAM/OpenPlaceRecognition/configs/model/place_recognition/resnet18-seqgem_minkloc3dv2.yaml
   top_k: 5
+local_occupancy_grid:
+  resolution: 0.1
+  radius: 18.0
+  max_range: 8.0
 scan_matching:
   model: feature2d
   detector_type: ORB

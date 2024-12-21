@@ -1,6 +1,6 @@
 <launch>
   <arg name="path_to_gt_map" default=""/>
-  <arg name="path_to_save_json" default="/home/kirill/TopoSLAM/toposlam_ws/src/simple_toposlam_model/graph_jsons_new/husky_rosbag.json"/>
+  <arg name="path_to_save_json" default="/home/kirill/TopoSLAM/toposlam_ws/src/simple_toposlam_model/graph_jsons_new/husky_rosbag_two_zeds"/>
   <arg name="config_file" default="husky_rosbag_two_zeds.yaml"/>
 
   <node pkg="prism_topomap" type="prism_topomap_node.py" name="prism_topomap_node" output="screen">
