@@ -5,16 +5,19 @@ input:
     rotation_matrix: [[ 0.9992396 , -0.        , -0.03899011],
                       [ 0.        ,  1.        , -0.        ],
                       [ 0.03899011,  0.        ,  0.9992396 ]]
-    floor_height: -0.9
-    ceiling_height: 1.5
-  odometry:
-    topic: /husky_velocity_controller/odom
-    type: Odometry
+    floor_height: -0.85
+    ceiling_height: 5.0
   subscribe_to_gt_pose: false
   subscribe_to_images: false
+  odometry:
+    topic: /glim_ros/odom
+    type: Odometry
 topomap:
+  mode: localization
+  start_location: 0
+  start_local_pose: [0, 0, 0]
   iou_threshold: 0.3
-  max_edge_length: 5.0
+  max_edge_length: 8.0
   localization_frequency: 2.0
   rel_pose_correction_frequency: 0.5
 place_recognition:
@@ -24,9 +27,9 @@ place_recognition:
   model_config_path: /home/kirill/TopoSLAM/OpenPlaceRecognition/configs/model/place_recognition/resnet18-seqgem_minkloc3dv2.yaml
   top_k: 5
 local_occupancy_grid:
-  resolution: 0.1
-  radius: 18.0
-  max_range: 15.0
+  resolution: 0.2
+  radius: 20.0
+  max_range: 18.0
 scan_matching:
   model: feature2d
   detector_type: ORB
@@ -36,6 +39,7 @@ scan_matching:
   voxel_downsample_size: 0.1
   min_matches: 5
 scan_matching_along_edge:
+  save_dir: /home/kirill/test_inline_registration
   model: feature2d
   detector_type: HarrisWithDistance
   score_threshold: 0.5
@@ -45,5 +49,5 @@ scan_matching_along_edge:
   min_matches: 5
 visualization:
   publish_gt_map: false
-  map_frame: odom
+  map_frame: map
   publish_tf_from_odom: false

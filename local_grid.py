@@ -84,6 +84,8 @@ class LocalGrid:
     def is_inside(self, x, y, theta):
         i = int((x + self.radius) / self.resolution)
         j = int((y + self.radius) / self.resolution)
+        if i < 0 or i >= self.grid.shape[0] or j < 0 or j >= self.grid.shape[1]:
+            return False
         return (self.grid[i, j] == 1)
 
     def get_iou(self, other, rel_x, rel_y, rel_theta, save=False, cnt=0):
@@ -102,16 +104,16 @@ class LocalGrid:
         grid_aligned[:, :, 0] = cur_grid_transformed
         grid_aligned[:, :, 1] = v_grid_copy
         grid_aligned = (grid_aligned * 255).astype(np.uint8)
-        if save:
-            # print(cnt)
-            save_dir = '/home/kirill/test_iou/{}'.format(cnt)
-            if not os.path.exists(save_dir):
-                os.mkdir(save_dir)
-            np.savez(os.path.join(save_dir, 'cur_grid.npz'), self.grid)
-            np.savez(os.path.join(save_dir, 'cur_grid_transformed.npz'), cur_grid_transformed)
-            np.savez(os.path.join(save_dir, 'v_grid.npz'), v_grid_copy)
-            np.savetxt(os.path.join(save_dir, 'rel_pose.txt'), np.array([rel_x, rel_y, rel_theta]))
-            imsave(os.path.join(save_dir, 'grid_aligned.png'), grid_aligned)
+        # if save:
+        #     # print(cnt)
+        #     save_dir = '/home/kirill/test_iou/{}'.format(cnt)
+        #     if not os.path.exists(save_dir):
+        #         os.mkdir(save_dir)
+        #     np.savez(os.path.join(save_dir, 'cur_grid.npz'), self.grid)
+        #     np.savez(os.path.join(save_dir, 'cur_grid_transformed.npz'), cur_grid_transformed)
+        #     np.savez(os.path.join(save_dir, 'v_grid.npz'), v_grid_copy)
+        #     np.savetxt(os.path.join(save_dir, 'rel_pose.txt'), np.array([rel_x, rel_y, rel_theta]))
+        #     imsave(os.path.join(save_dir, 'grid_aligned.png'), grid_aligned)
         return intersection / union
 
     def get_tf_matrix_xy(self, trans_i, trans_j, rot_angle):

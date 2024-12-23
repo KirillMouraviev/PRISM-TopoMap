@@ -83,9 +83,9 @@ class Localizer():
         vertices_marker.id = 0
         vertices_marker.header.frame_id = self.map_frame
         vertices_marker.header.stamp = rospy.Time.now()
-        vertices_marker.scale.x = 0.4
-        vertices_marker.scale.y = 0.4
-        vertices_marker.scale.z = 0.4
+        vertices_marker.scale.x = 0.7
+        vertices_marker.scale.y = 0.7
+        vertices_marker.scale.z = 0.7
         if vertex_id_first in vertex_ids_matched:
             vertices_marker.color.r = 0
         else:
@@ -94,7 +94,7 @@ class Localizer():
         vertices_marker.color.b = 0
         vertices_marker.color.a = 1
         x, y, _ = self.graph.vertices[vertex_id_first]['pose_for_visualization']
-        img_front = self.graph.vertices[vertex_id_first]['img_front']
+        img_front = self.graph.vertices[vertex_id_first].get('img_front', None)
         vertices_marker.points.append(Point(x, y, 0.1))
         self.first_pr_publisher.publish(vertices_marker)
 
@@ -114,9 +114,9 @@ class Localizer():
         vertices_marker.id = 0
         vertices_marker.header.frame_id = self.map_frame
         vertices_marker.header.stamp = rospy.Time.now()
-        vertices_marker.scale.x = 0.2
-        vertices_marker.scale.y = 0.2
-        vertices_marker.scale.z = 0.2
+        vertices_marker.scale.x = 0.5
+        vertices_marker.scale.y = 0.5
+        vertices_marker.scale.z = 0.5
         vertices_marker.color.r = 0
         vertices_marker.color.g = 1
         vertices_marker.color.b = 0
@@ -148,9 +148,9 @@ class Localizer():
         vertices_marker.id = 0
         vertices_marker.header.frame_id = self.map_frame
         vertices_marker.header.stamp = rospy.Time.now()
-        vertices_marker.scale.x = 0.2
-        vertices_marker.scale.y = 0.2
-        vertices_marker.scale.z = 0.2
+        vertices_marker.scale.x = 0.5
+        vertices_marker.scale.y = 0.5
+        vertices_marker.scale.z = 0.5
         vertices_marker.color.r = 1
         vertices_marker.color.g = 1
         vertices_marker.color.b = 0
@@ -186,8 +186,11 @@ class Localizer():
         self.result_publisher.publish(result_msg)
 
     def localize(self, event=None):
-        if self.global_pose_for_visualization is None:
-            print('No global pose provided!')
+        # if self.global_pose_for_visualization is None:
+        #     print('No global pose provided!')
+        #     return
+        if self.stamp is None:
+            print('Waiting for message to initialize localizer...')
             return
         dt = (rospy.Time.now() - self.stamp).to_sec()
         #print('Localization lag:', dt)
@@ -254,10 +257,10 @@ class Localizer():
         #print('Cloud publish time:', t5 - t4)
         #print('Localization time:', t5 - t1)
         if len(vertex_ids) > 0:
-            self.localized_x, self.localized_y, self.localized_theta = start_global_pose
+        #     self.localized_x, self.localized_y, self.localized_theta = start_global_pose
             self.localized_stamp = start_stamp
-            self.localized_img_front = start_img_front
-            self.localized_img_back = start_img_back
+        #     self.localized_img_front = start_img_front
+        #     self.localized_img_back = start_img_back
             self.localized_cloud = start_cloud
         if self.publish:
             self.publish_result(vertex_ids, rel_poses)

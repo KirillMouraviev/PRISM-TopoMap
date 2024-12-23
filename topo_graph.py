@@ -202,14 +202,16 @@ class TopologicalGraph():
     #@profile
     def get_k_most_similar(self, img_front, img_back, cloud, stamp, k=1):
         t1 = time.time()
-        img_front_tensor = torch.Tensor(img_front).cuda()
-        img_back_tensor = torch.Tensor(img_back).cuda()
-        img_front_tensor = torch.permute(img_front_tensor, (2, 0, 1))
-        img_back_tensor = torch.permute(img_back_tensor, (2, 0, 1))
         input_data = {'pointcloud_lidar_coords': torch.Tensor(cloud[:, :3]).cuda(),
-                    'pointcloud_lidar_feats': torch.ones((cloud.shape[0], 1)).cuda(),
-                    'image_front': img_front_tensor,
-                    'image_back': img_back_tensor}
+                    'pointcloud_lidar_feats': torch.ones((cloud.shape[0], 1)).cuda()}
+        if img_front is not None:
+            img_front_tensor = torch.Tensor(img_front).cuda()
+            img_front_tensor = torch.permute(img_front_tensor, (2, 0, 1))
+            input_data['image_front'] = img_front_tensor
+        if img_back is not None:
+            img_back_tensor = torch.Tensor(img_back).cuda()
+            input_data['image_back'] = img_back_tensor
+            img_back_tensor = torch.permute(img_back_tensor, (2, 0, 1))
         if cloud is not None:
             cloud_with_fields = np.zeros((cloud.shape[0]), dtype=[
                 ('x', np.float32),
@@ -284,15 +286,15 @@ class TopologicalGraph():
                 #print('Tf translation:', tf_translation)
         #print('Pred tf:', np.array(pred_tf))
         #print('Pred i filtered:', pred_i_filtered)
-        state_dict = {
-            'stamp': stamp,
-            'pose_for_visualization': self.global_pose_for_visualization,
-            'img_front': img_front,
-            'img_back': img_back,
-            'grid': grid,
-            'descriptor': descriptor
-        }
-        self.save_localization_results(state_dict, pred_i, pred_tf, pr_scores, reg_scores)
+        # state_dict = {
+        #     'stamp': stamp,
+        #     'pose_for_visualization': self.global_pose_for_visualization,
+        #     'img_front': img_front,
+        #     'img_back': img_back,
+        #     'grid': grid,
+        #     'descriptor': descriptor
+        # }
+        # self.save_localization_results(state_dict, pred_i, pred_tf, pr_scores, reg_scores)
         return pred_i, pred_i_filtered, np.array(pred_tf), pr_scores, reg_scores
 
     def get_transform_to_vertex(self, vertex_id, grid):
@@ -394,9 +396,9 @@ class TopologicalGraph():
         vertices_marker.id = 0
         vertices_marker.header.frame_id = self.map_frame
         vertices_marker.header.stamp = rospy.Time.now()
-        vertices_marker.scale.x = 0.3
-        vertices_marker.scale.y = 0.3
-        vertices_marker.scale.z = 0.3
+        vertices_marker.scale.x = 0.5
+        vertices_marker.scale.y = 0.5
+        vertices_marker.scale.z = 0.5
         vertices_marker.color.r = 1
         vertices_marker.color.g = 0
         vertices_marker.color.b = 0
@@ -410,7 +412,7 @@ class TopologicalGraph():
         edges_marker.id = 1
         edges_marker.type = Marker.LINE_LIST
         edges_marker.header = vertices_marker.header
-        edges_marker.scale.x = 0.1
+        edges_marker.scale.x = 0.2
         edges_marker.color.r = 0
         edges_marker.color.g = 0
         edges_marker.color.b = 1
