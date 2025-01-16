@@ -14,6 +14,8 @@ The PRISM-TopoMap method is described in the [paper](https://arxiv.org/abs/2404.
 }
 ```
 
+Comparison of Place Recognition methods is in the [PR_ablation.md](PR_ablation.md).
+
 ## Prerequisites:
 - [OpenPlaceRecognition](https://github.com/alexmelekhin/openplacerecognition)
 - [ROS](https://ros.org) Melodic or Noetic
