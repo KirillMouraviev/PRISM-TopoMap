@@ -2,7 +2,8 @@ input:
   pointcloud:
     topic: /habitat/points
     fields: xyzrgb
-    rotation_matrix: [[0, -1, 0], [0, 0, -1], [1, 0, 0]]
+    #rotation_matrix: [[0, -1, 0], [0, 0, -1], [1, 0, 0]]
+    rotation_matrix: [[1, 0, 0], [0, 1, 0], [0, 0, 1]]
     floor_height: -0.9
     ceiling_height: 1.5
   gt_pose:
