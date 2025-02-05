@@ -270,7 +270,6 @@ class TopoSLAMModel():
         # if path_length < 8:
         #     return True
         print('Path length to vertex {} is {}'.format(v, path_length))
-
         straight_length = np.sqrt(rel_pose_along_path[0] ** 2 + rel_pose_along_path[1] ** 2)
         print('Straight length:', straight_length)
         if path_length > 3 * straight_length or straight_length < 5:
@@ -601,22 +600,14 @@ class TopoSLAMModel():
         pose_diffs = []
         edge_poses = []
         neighbours = []
-        target_pose = None
-        target_pose_diff = None
         for vertex_id, pose_to_vertex in self.graph.adj_lists[self.last_vertex_id]:
             edge_poses.append(pose_to_vertex)
             pose_diff = np.sqrt((pose_to_vertex[0] - self.rel_pose_of_vcur[0]) ** 2 + (pose_to_vertex[1] - self.rel_pose_of_vcur[1]) ** 2)
             pose_diffs.append(pose_diff)
             neighbours.append(vertex_id)
-            if vertex_id == target_vertex_id:
-                target_pose = pose_to_vertex
-                target_pose_diff = pose_diff
         dist_to_vcur = np.sqrt(self.rel_pose_of_vcur[0] ** 2 + self.rel_pose_of_vcur[1] ** 2)
         changed = False
-        if target_vertex_id is not None and target_pose_diff is not None and target_pose_diff < 5 and target_pose_diff < dist_to_vcur:
-            nearest_vertex_id = target_vertex_id
-            pose_on_edge = target_pose
-        elif len(pose_diffs) > 0 and min(pose_diffs) < 3 and min(pose_diffs) < dist_to_vcur:
+        if len(pose_diffs) > 0 and min(pose_diffs) < 3 and min(pose_diffs) < dist_to_vcur:
             nearest_vertex_id = neighbours[np.argmin(pose_diffs)]
             pose_on_edge = edge_poses[np.argmin(pose_diffs)]
         else:
@@ -689,7 +680,6 @@ class TopoSLAMModel():
         if self.last_vertex is not None:
             #true_rel_pose = get_rel_pose(*self.last_vertex['pose_for_visualization'], *new_vertex['pose_for_visualization'])
             self.graph.add_edge(self.last_vertex_id, new_vertex_id, *pose_stamped)
-
         self.rel_pose_of_vcur = new_rel_pose_of_vcur
         if self.rel_pose_vcur_to_loc is not None:
             self.rel_pose_vcur_to_loc = get_rel_pose(*pose_stamped, *self.rel_pose_vcur_to_loc)
@@ -894,4 +884,4 @@ class TopoSLAMModel():
 
 toposlam_model = TopoSLAMModel()
 toposlam_model.run()
-#toposlam_model.save_graph()
+toposlam_model.save_graph()
