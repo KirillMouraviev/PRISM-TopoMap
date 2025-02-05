@@ -59,6 +59,9 @@ class LocalGrid:
                               (points_ij[:, 1] >= 0) * (points_ij[:, 1] < self.grid.shape[1])]
         self.grid[points_ij[:, 0], points_ij[:, 1]] = 2
 
+    def add_curb_detection(self, points_curb):
+        pass
+
     def get_transformed_grid(self, x, y, theta):
         minus8 = np.array([
             [1, 0, self.radius / self.resolution],

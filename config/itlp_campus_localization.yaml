@@ -28,8 +28,8 @@ place_recognition:
   top_k: 5
 local_occupancy_grid:
   resolution: 0.2
-  radius: 20.0
-  max_range: 18.0
+  radius: 40.0
+  max_range: 40.0
 scan_matching:
   model: feature2d
   detector_type: ORB

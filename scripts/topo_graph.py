@@ -4,7 +4,6 @@ import heapq
 import numpy as np
 import time
 import os
-import copy
 import ros_numpy
 from visualization_msgs.msg import Marker, MarkerArray
 from geometry_msgs.msg import Point
@@ -46,8 +45,6 @@ class TopologicalGraph():
         self.vertices = []
         self.adj_lists = []
         self.map_frame = map_frame
-        self.graph_viz_pub = rospy.Publisher('topological_map', MarkerArray, latch=True, queue_size=100)
-        self.graph_pub = rospy.Publisher('graph', TopologicalGraphMessage, latch=True, queue_size=100)
         self.place_recognition_model = place_recognition_model
         self.index = place_recognition_index
         self.registration_pipeline = registration_model
@@ -386,99 +383,6 @@ class TopologicalGraph():
                     heapq.heappush(heap, (tentative_distance, neighbour))
         #print('Path planning time:', time.time() - start_time)
         return None, float('inf')
-        
-    def publish_graph(self):
-        # Publish graph for visualization
-        graph_msg = MarkerArray()
-        vertices_marker = Marker()
-        #vertices_marker = ns = 'points_and_lines'
-        vertices_marker.type = Marker.POINTS
-        vertices_marker.id = 0
-        vertices_marker.header.frame_id = self.map_frame
-        vertices_marker.header.stamp = rospy.Time.now()
-        vertices_marker.scale.x = 0.5
-        vertices_marker.scale.y = 0.5
-        vertices_marker.scale.z = 0.5
-        vertices_marker.color.r = 1
-        vertices_marker.color.g = 0
-        vertices_marker.color.b = 0
-        vertices_marker.color.a = 1
-        for vertex_dict in self.vertices:
-            x, y, _ = vertex_dict['pose_for_visualization']
-            vertices_marker.points.append(Point(x, y, 0.05))
-        graph_msg.markers.append(vertices_marker)
-
-        edges_marker = Marker()
-        edges_marker.id = 1
-        edges_marker.type = Marker.LINE_LIST
-        edges_marker.header = vertices_marker.header
-        edges_marker.scale.x = 0.2
-        edges_marker.color.r = 0
-        edges_marker.color.g = 0
-        edges_marker.color.b = 1
-        edges_marker.color.a = 0.5
-        edges_marker.pose.orientation.w = 1
-        for u in range(len(self.vertices)):
-            for v, pose in self.adj_lists[u]:
-                ux, uy, _ = self.vertices[u]['pose_for_visualization']
-                vx, vy, _ = self.vertices[v]['pose_for_visualization']
-                edges_marker.points.append(Point(ux, uy, 0.05))
-                edges_marker.points.append(Point(vx, vy, 0.05))
-        graph_msg.markers.append(edges_marker)
-
-        vertex_orientation_marker = Marker()
-        vertex_orientation_marker.id = 2
-        vertex_orientation_marker.type = Marker.LINE_LIST
-        vertex_orientation_marker.header = vertices_marker.header
-        vertex_orientation_marker.scale.x = 0.05
-        vertex_orientation_marker.color.r = 1
-        vertex_orientation_marker.color.g = 0
-        vertex_orientation_marker.color.b = 0
-        vertex_orientation_marker.color.a = 1
-        vertex_orientation_marker.pose.orientation.w = 1
-        for vertex_dict in self.vertices:
-            x, y, theta = vertex_dict['pose_for_visualization']
-            vertex_orientation_marker.points.append(Point(x, y, 0.1))
-            vertex_orientation_marker.points.append(Point(x + np.cos(theta) * 0.5, y + np.sin(theta) * 0.5, 0.05))
-        # graph_msg.markers.append(vertex_orientation_marker)
-
-        cnt = 3
-        text_marker = Marker()
-        text_marker.header = vertices_marker.header
-        text_marker.type = Marker.TEXT_VIEW_FACING
-        text_marker.scale.z = 0.4
-        text_marker.color.r = 1
-        text_marker.color.g = 0.5
-        text_marker.color.b = 0
-        text_marker.color.a = 1
-        text_marker.pose.position.z = 0.5
-        text_marker.pose.orientation.w = 1
-        for i, vertex_dict in enumerate(self.vertices):
-            x, y, theta = vertex_dict['pose_for_visualization']
-            text_marker.id = cnt
-            text_marker.pose.position.x = x
-            text_marker.pose.position.y = y
-            text_marker.text = '{}: ({}, {}, {})'.format(i, round(x, 1), round(y, 1), round(theta, 2))
-            graph_msg.markers.append(copy.deepcopy(text_marker))
-            cnt += 1
-        text_marker.scale.z = 0.3
-        text_marker.color.r = 0
-        text_marker.color.g = 1
-        text_marker.color.b = 1
-        for u in range(len(self.vertices)):
-            for v, pose in self.adj_lists[u]:
-                if u >= v:
-                    continue
-                ux, uy, _ = self.vertices[u]['pose_for_visualization']
-                vx, vy, _ = self.vertices[v]['pose_for_visualization']
-                text_marker.id = cnt
-                text_marker.pose.position.x = (ux + vx) / 2
-                text_marker.pose.position.y = (uy + vy) / 2
-                text_marker.text = '({}, {}, {})'.format(round(pose[0], 1), round(pose[1], 1), round(pose[2], 2))
-                graph_msg.markers.append(copy.deepcopy(text_marker))
-                cnt += 1
-
-        self.graph_viz_pub.publish(graph_msg)
 
     def save_to_json(self, output_path):
         if not os.path.exists(output_path):

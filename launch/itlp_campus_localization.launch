@@ -1,7 +1,7 @@
 <launch>
   <arg name="scene_name" default="2n8kARJN3HM"/>
   <arg name="path_to_gt_map" default="/home/kirill/TopoSLAM/GT/$(arg scene_name)"/>
-  <arg name="path_to_load_graph" default="/media/kirill/7CM/ITLP_campus_bags/topo_graph_for_tracks"/>
+  <arg name="path_to_load_graph" default="/media/kirill/7CM/ITLP_campus_bags/topo_graph_for_tracks_new"/>
   <arg name="config_file" default="itlp_campus_localization.yaml"/>
 
   <node pkg="prism_topomap" type="prism_topomap_node.py" name="prism_topomap_node" output="screen">

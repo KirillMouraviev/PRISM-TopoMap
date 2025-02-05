@@ -52,16 +52,16 @@ class Localizer():
         if not os.path.exists(save_dir):
             os.mkdir(save_dir)
         np.savez(os.path.join(save_dir, 'ref_cloud.npz'), self.localized_cloud)
-        #print('Mean of the ref cloud:', self.localized_cloud[:, :3].mean())
+        print('Mean of the ref cloud:', self.localized_cloud[:, :3].mean())
         tf_data = []
         gt_pose_data = [[self.localized_x, self.localized_y, self.localized_theta]]
         for idx, tf in zip(vertex_ids, transforms):
             if idx >= 0:
                 vertex_dict = self.graph.vertices[idx]
                 x, y, theta = vertex_dict['pose_for_visualization']
-                grid = vertex_dict['grid'].grid
+                cloud = vertex_dict['cloud']
                 #print('GT x, y, theta:', x, y, theta)
-                np.savetxt(os.path.join(save_dir, 'cand_grid_{}.txt'.format(idx)), grid)
+                #np.savetxt(os.path.join(save_dir, 'cand_cloud_{}.txt'.format(idx)), cloud)
                 if tf is not None:
                     tf_data.append([idx] + list(tf))
                 else:
@@ -74,18 +74,15 @@ class Localizer():
         np.savetxt(os.path.join(save_dir, 'reg_scores.txt'), np.array(reg_scores))
 
     def publish_localization_results(self, vertex_id_first, vertex_ids_matched, vertex_ids_unmatched, rel_poses):
-        if vertex_id_first < 0:
-            return
         # Publish top-1 PlaceRecognition vertex
         vertices_marker = Marker()
-        #vertices_marker = ns = 'points_and_lines'
         vertices_marker.type = Marker.POINTS
         vertices_marker.id = 0
         vertices_marker.header.frame_id = self.map_frame
         vertices_marker.header.stamp = rospy.Time.now()
-        vertices_marker.scale.x = 0.7
-        vertices_marker.scale.y = 0.7
-        vertices_marker.scale.z = 0.7
+        vertices_marker.scale.x = 0.4
+        vertices_marker.scale.y = 0.4
+        vertices_marker.scale.z = 0.4
         if vertex_id_first in vertex_ids_matched:
             vertices_marker.color.r = 0
         else:
@@ -94,18 +91,15 @@ class Localizer():
         vertices_marker.color.b = 0
         vertices_marker.color.a = 1
         x, y, _ = self.graph.vertices[vertex_id_first]['pose_for_visualization']
-        img_front = self.graph.vertices[vertex_id_first].get('img_front', None)
+        img_front = self.graph.vertices[vertex_id_first]['img_front']
         vertices_marker.points.append(Point(x, y, 0.1))
         self.first_pr_publisher.publish(vertices_marker)
 
         # Publish top-1 PlaceRecognition image
-        try:
-            img_msg = self.bridge.cv2_to_imgmsg(img_front)
-            img_msg.encoding = 'rgb8'
-            img_msg.header.stamp = rospy.Time.now()
-            self.first_pr_image_publisher.publish(img_msg)
-        except:
-            pass
+        img_msg = self.bridge.cv2_to_imgmsg(img_front)
+        img_msg.encoding = 'rgb8'
+        img_msg.header.stamp = rospy.Time.now()
+        self.first_pr_image_publisher.publish(img_msg)
 
         # Publish matched vertices
         vertices_marker = Marker()
@@ -114,9 +108,9 @@ class Localizer():
         vertices_marker.id = 0
         vertices_marker.header.frame_id = self.map_frame
         vertices_marker.header.stamp = rospy.Time.now()
-        vertices_marker.scale.x = 0.5
-        vertices_marker.scale.y = 0.5
-        vertices_marker.scale.z = 0.5
+        vertices_marker.scale.x = 0.2
+        vertices_marker.scale.y = 0.2
+        vertices_marker.scale.z = 0.2
         vertices_marker.color.r = 0
         vertices_marker.color.g = 1
         vertices_marker.color.b = 0
@@ -148,9 +142,9 @@ class Localizer():
         vertices_marker.id = 0
         vertices_marker.header.frame_id = self.map_frame
         vertices_marker.header.stamp = rospy.Time.now()
-        vertices_marker.scale.x = 0.5
-        vertices_marker.scale.y = 0.5
-        vertices_marker.scale.z = 0.5
+        vertices_marker.scale.x = 0.2
+        vertices_marker.scale.y = 0.2
+        vertices_marker.scale.z = 0.2
         vertices_marker.color.r = 1
         vertices_marker.color.g = 1
         vertices_marker.color.b = 0
@@ -184,13 +178,34 @@ class Localizer():
         for i in range(n):
             result_msg.data.append(rel_poses[i][2])
         self.result_publisher.publish(result_msg)
+        if len(vertex_ids) > 0:
+            i = vertex_ids[0]
+            cloud = self.graph.vertices[i]['cloud']
+            cloud_with_fields = np.zeros((cloud.shape[0]), dtype=[
+                ('x', np.float32),
+                ('y', np.float32),
+                ('z', np.float32),#]),
+                ('r', np.uint8),
+                ('g', np.uint8),
+                ('b', np.uint8)])
+            cloud_with_fields['x'] = cloud[:, 0]
+            cloud_with_fields['y'] = cloud[:, 1]
+            cloud_with_fields['z'] = cloud[:, 2]
+            #cloud_with_fields['r'] = cloud[:, 3]
+            #cloud_with_fields['g'] = cloud[:, 4]
+            #cloud_with_fields['b'] = cloud[:, 5]
+            #cloud_with_fields = ros_numpy.point_cloud2.merge_rgb_fields(cloud_with_fields)
+            cloud_msg = ros_numpy.point_cloud2.array_to_pointcloud2(cloud_with_fields)
+            if self.stamp is None:
+                cloud_msg.header.stamp = rospy.Time.now()
+            else:
+                cloud_msg.header.stamp = self.stamp
+            cloud_msg.header.frame_id = 'base_link'
+            self.cand_cloud_publisher.publish(cloud_msg)
 
     def localize(self, event=None):
-        # if self.global_pose_for_visualization is None:
-        #     print('No global pose provided!')
-        #     return
-        if self.stamp is None:
-            print('Waiting for message to initialize localizer...')
+        if self.global_pose_for_visualization is None:
+            print('No global pose provided!')
             return
         dt = (rospy.Time.now() - self.stamp).to_sec()
         #print('Localization lag:', dt)
@@ -239,16 +254,10 @@ class Localizer():
         vertex_ids_pr = [i for i in vertex_ids_pr if i >= 0]
         if len(vertex_ids_pr) == 0:
             self.n_loc_fails += 1
-        #for i, v in enumerate(self.graph.vertices):
         for i, idx in enumerate(vertex_ids_pr):
             v = self.graph.vertices[idx]
-            #if self.gt_map.in_sight(x, y, v[0], v[1]):
             vertex_ids.append(idx)
-            #print('Transform:', transforms[i])
             rel_poses.append(transforms[i, [3, 4, 2]])
-            #print('True dist:', dist)
-            #print('Descriptor dist:', pr_scores[i])
-            #print('Reg score:', reg_scores[i])
         rel_poses = np.array(rel_poses)
         freeze_msg = Bool()
         freeze_msg.data = False
@@ -257,10 +266,10 @@ class Localizer():
         #print('Cloud publish time:', t5 - t4)
         #print('Localization time:', t5 - t1)
         if len(vertex_ids) > 0:
-        #     self.localized_x, self.localized_y, self.localized_theta = start_global_pose
+            self.localized_x, self.localized_y, self.localized_theta = start_global_pose
             self.localized_stamp = start_stamp
-        #     self.localized_img_front = start_img_front
-        #     self.localized_img_back = start_img_back
+            self.localized_img_front = start_img_front
+            self.localized_img_back = start_img_back
             self.localized_cloud = start_cloud
         if self.publish:
             self.publish_result(vertex_ids, rel_poses)
