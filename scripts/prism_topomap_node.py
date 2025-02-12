@@ -45,6 +45,7 @@ class PRISMTopomapNode():
 
         self.gt_poses = []
         self.odom_poses = []
+        self.curb_clouds = []
         self.rgb_buffer_front = deque(maxlen=100)
         self.rgb_buffer_back = deque(maxlen=100)
         self.cv_bridge = CvBridge()
@@ -75,6 +76,10 @@ class PRISMTopomapNode():
         self.pcd_fields = pointcloud_config['fields']
         self.pcd_rotation = np.array(pointcloud_config['rotation_matrix'])
         self.pcd_subscriber = rospy.Subscriber(pointcloud_topic, PointCloud2, self.pcd_callback)
+        self.use_curb_detection = pointcloud_config['subscribe_to_curbs']
+        if self.use_curb_detection:
+            curb_detection_topic = pointcloud_config['curb_detection_topic']
+            self.curb_detection_subscriber = rospy.Subscriber(curb_detection_topic, PointCloud2, self.curb_detection_callback)
         # Odometry
         odometry_config = input_config['odometry']
         odometry_topic = odometry_config['topic']
@@ -422,7 +427,7 @@ class PRISMTopomapNode():
         local_grid_msg.info.origin.orientation.z = 0
         local_grid_msg.info.origin.orientation.w = 1
         local_map = cur_grid.grid.T.ravel().astype(np.int8)
-        local_map[local_map == 2] = 100
+        local_map[local_map > 2] = 100
         local_map[local_map == 0] = -1
         local_map[local_map == 1] = 0
         local_grid_msg.data = list(local_map)
@@ -442,7 +447,7 @@ class PRISMTopomapNode():
         local_grid_msg.info.origin.orientation.z = 0
         local_grid_msg.info.origin.orientation.w = 1
         local_map = cur_grid_transformed.T.ravel().astype(np.int8)
-        local_map[local_map == 2] = 100
+        local_map[local_map >= 2] = 100
         local_map[local_map == 0] = -1
         local_map[local_map == 1] = 0
         local_grid_msg.data = list(local_map)
@@ -471,6 +476,10 @@ class PRISMTopomapNode():
         if self.toposlam_model.found_loop_closure:
             self.publish_loop_closure_results(self.toposlam_model.path, self.toposlam_model.last_vertex['global_pose_for_visualization'])
 
+    def curb_detection_callback(self, msg):
+        cloud = get_xyz_coords_from_msg(msg, "xyz", self.pcd_rotation)
+        self.curb_clouds.append([msg.header.stamp.to_sec(), cloud])
+
     def pcd_callback(self, msg):
         if self.publish_gt_map_flag:
             self.publish_gt_map()
@@ -482,14 +491,14 @@ class PRISMTopomapNode():
             print('Too big negative message time difference. Is your clock published?')
         if dt > 0.5 or dt < -0.5:
             return
-        cur_global_pose, cur_odom_pose, cur_img_front, cur_img_back = self.get_sync_pose_and_images(msg.header.stamp.to_sec(),
-                                                                                                    [self.gt_poses, self.odom_poses, self.rgb_buffer_front, self.rgb_buffer_back],
-                                                                                                    [True, True, False, False])
+        cur_global_pose, cur_odom_pose, cur_img_front, cur_img_back, cur_curbs = self.get_sync_pose_and_images(msg.header.stamp.to_sec(),
+            [self.gt_poses, self.odom_poses, self.rgb_buffer_front, self.rgb_buffer_back, self.curb_clouds],
+            [True, True, False, False, False])
         start_time = rospy.Time.now().to_sec()
         while cur_odom_pose is None:
-            cur_global_pose, cur_odom_pose, cur_img_front, cur_img_back = self.get_sync_pose_and_images(msg.header.stamp.to_sec(),
-                                                                                                    [self.gt_poses, self.odom_poses, self.rgb_buffer_front, self.rgb_buffer_back],
-                                                                                                    [True, True, False, False])
+            cur_global_pose, cur_odom_pose, cur_img_front, cur_img_back, cur_curbs = self.get_sync_pose_and_images(msg.header.stamp.to_sec(),
+                [self.gt_poses, self.odom_poses, self.rgb_buffer_front, self.rgb_buffer_back, self.curb_clouds],
+                [True, True, False, False, False])
             rospy.sleep(1e-2)
             if rospy.Time.now().to_sec() - start_time > 0.5:
                 print('Waiting for sync pose and images timed out!')
@@ -502,7 +511,7 @@ class PRISMTopomapNode():
 
         cur_cloud = get_xyz_coords_from_msg(msg, self.pcd_fields, self.pcd_rotation)
         start_time = time.time()
-        self.toposlam_model.update_by_iou(cur_global_pose, cur_odom_pose, cur_img_front, cur_img_back, cur_cloud, msg.header.stamp)
+        self.toposlam_model.update_by_iou(cur_global_pose, cur_odom_pose, cur_img_front, cur_img_back, cur_cloud, cur_curbs, msg.header.stamp)
 
         # Publish graph and all the other visualization info
         self.publish_graph()

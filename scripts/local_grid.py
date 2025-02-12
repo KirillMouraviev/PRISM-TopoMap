@@ -59,8 +59,17 @@ class LocalGrid:
                               (points_ij[:, 1] >= 0) * (points_ij[:, 1] < self.grid.shape[1])]
         self.grid[points_ij[:, 0], points_ij[:, 1]] = 2
 
-    def add_curb_detection(self, points_curb):
-        pass
+    def load_curb_from_cloud(self, points_xyz):
+        index = np.isnan(points_xyz).any(axis=1)
+        points_xyz = np.delete(points_xyz, index, axis=0)
+        points_xyz = points_xyz[(points_xyz[:, 0] > -self.max_range) * (points_xyz[:, 0] < self.max_range) * \
+                                (points_xyz[:, 1] > -self.max_range) * (points_xyz[:, 1] < self.max_range)]
+        points_xyz_obstacles = points_xyz
+        points_ij = np.round(points_xyz_obstacles[:, :2] / self.resolution).astype(int) + \
+                            [int(self.radius / self.resolution), int(self.radius / self.resolution)]
+        points_ij = points_ij[(points_ij[:, 0] >= 0) * (points_ij[:, 0] < self.grid.shape[0]) * \
+                              (points_ij[:, 1] >= 0) * (points_ij[:, 1] < self.grid.shape[1])]
+        self.grid[points_ij[:, 0], points_ij[:, 1]] = 3
 
     def get_transformed_grid(self, x, y, theta):
         minus8 = np.array([
@@ -68,18 +77,18 @@ class LocalGrid:
             [0, 1, self.radius / self.resolution],
             [0, 0, 1]
         ])
-        plus8 = np.array([
-            [1, 0, -self.radius / self.resolution],
-            [0, 1, -self.radius / self.resolution],
-            [0, 0, 1]
-        ])
         tf_matrix = np.array([
             [np.cos(-theta), np.sin(-theta), y / self.resolution],
             [-np.sin(-theta), np.cos(-theta), x / self.resolution],
             [0, 0, 1]
         ])
-        tf_matrix = minus8 @ tf_matrix @ plus8
-        return warpAffine(self.grid, tf_matrix[:2], self.grid.shape)
+        plus8 = np.array([
+            [1, 0, -self.radius / self.resolution],
+            [0, 1, -self.radius / self.resolution],
+            [0, 0, 1]
+        ])
+        tf_matrix_shifted = minus8 @ tf_matrix @ plus8
+        return warpAffine(self.grid, tf_matrix_shifted[:2], self.grid.shape)
 
     def transform(self, x, y, theta):
         self.grid = self.get_transformed_grid(x, y, theta)

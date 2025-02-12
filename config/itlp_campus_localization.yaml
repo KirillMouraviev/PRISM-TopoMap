@@ -1,13 +1,18 @@
 input:
   pointcloud:
     topic: /velodyne_points
+    subscribe_to_curbs: true
+    curb_detection_topic: /SurfaceFitNode/curbs
     fields: xyz
     rotation_matrix: [[ 0.9992396 , -0.        , -0.03899011],
                       [ 0.        ,  1.        , -0.        ],
                       [ 0.03899011,  0.        ,  0.9992396 ]]
     floor_height: -0.85
     ceiling_height: 5.0
-  subscribe_to_gt_pose: false
+  subscribe_to_gt_pose: true
+  gt_pose:
+    topic: /odom_corrected
+    type: Odometry
   subscribe_to_images: false
   odometry:
     topic: /glim_ros/odom

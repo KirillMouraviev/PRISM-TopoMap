@@ -112,7 +112,7 @@ class TopologicalGraph():
             self.index.add(np.array(self.vertices[i]['descriptor'])[np.newaxis, :])
 
     #@profile
-    def add_vertex(self, global_pose_for_visualization, img_front, img_back, cloud=None):
+    def add_vertex(self, global_pose_for_visualization, img_front=None, img_back=None, cloud=None, grid=None):
         x, y, theta = global_pose_for_visualization
         print('\n\n\n Add new vertex ({}, {}, {}) with idx {} \n\n\n'.format(x, y, theta, len(self.vertices)))
         self.adj_lists.append([])
@@ -138,8 +138,6 @@ class TopologicalGraph():
             #descriptor = np.random.random(256)
             if len(descriptor.shape) == 1:
                 descriptor = descriptor[np.newaxis, :]
-            grid = LocalGrid(resolution=self.grid_resolution, radius=self.grid_radius, max_range=self.max_grid_range)
-            grid.load_from_cloud(cloud[:, :3])
             #print('X y theta:', x, y, theta)
             vertex_dict = {
                 'stamp': rospy.Time.now(),
@@ -197,7 +195,7 @@ class TopologicalGraph():
         np.savetxt(os.path.join(save_dir, 'reg_scores.txt'), np.array(reg_scores))
 
     #@profile
-    def get_k_most_similar(self, img_front, img_back, cloud, stamp, k=1):
+    def get_k_most_similar(self, img_front, img_back, cloud, grid, stamp, k=1):
         t1 = time.time()
         input_data = {'pointcloud_lidar_coords': torch.Tensor(cloud[:, :3]).cuda(),
                     'pointcloud_lidar_feats': torch.ones((cloud.shape[0], 1)).cuda()}
@@ -234,8 +232,6 @@ class TopologicalGraph():
         t2 = time.time()
         #print('Ref cloud publish time:', t2 - t1)
         batch = self._preprocess_input(input_data)
-        grid = LocalGrid(resolution=self.grid_resolution, radius=self.grid_radius, max_range=self.max_grid_range)
-        grid.load_from_cloud(cloud)
         t3 = time.time()
         #print('Preprocessing time:', t3 - t2)
         descriptor = self.place_recognition_model(batch)["final_descriptor"].detach().cpu().numpy()
@@ -258,6 +254,8 @@ class TopologicalGraph():
             t1 = time.time()
             cand_vertex_dict = self.vertices[idx]
             cand_grid = cand_vertex_dict['grid']
+            grid.grid[grid.grid > 2] = 0
+            cand_grid.grid[cand_grid.grid > 2] = 0
             cand_grid_tensor = torch.Tensor(cand_grid.grid).to(self.device)
             ref_grid_tensor = torch.Tensor(grid.grid).to(self.device)
             start_time = time.time()

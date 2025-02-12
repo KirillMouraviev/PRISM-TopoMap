@@ -10,5 +10,10 @@
     <param name="config_file" value="$(arg config_file)"/>
   </node>
 
+  <node pkg="prism_topomap" type="tf_to_odom.py" name="odom_from_tf">
+    <param name="source_frame" value="map"/>
+    <param name="target_frame" value="base_link"/>
+  </node>
+
   <node pkg="tf" type="static_transform_publisher" name="tf_map_to_odom" args="-23.8 -17.6 0 0 0 0 map odom 100"/>
 </launch>

@@ -20,6 +20,7 @@ class Localizer():
         self.img_front = None
         self.img_back = None
         self.cloud = None
+        self.grid = None
         self.global_pose_for_visualization = None
         self.stamp = None
         self.localized_x = None
@@ -50,17 +51,18 @@ class Localizer():
     def save_reg_test_data(self, vertex_ids, transforms, pr_scores, reg_scores, save_dir):
         if not os.path.exists(save_dir):
             os.mkdir(save_dir)
-        np.savez(os.path.join(save_dir, 'ref_cloud.npz'), self.localized_cloud)
+        np.savez(os.path.join(save_dir, 'ref_cloud.npz'), self.cloud)
+        np.savez(os.path.join(save_dir, 'ref_grid.npz'), self.grid.grid)
         #print('Mean of the ref cloud:', self.localized_cloud[:, :3].mean())
         tf_data = []
-        gt_pose_data = [[self.localized_x, self.localized_y, self.localized_theta]]
+        gt_pose_data = [list(self.global_pose_for_visualization)]
         for idx, tf in zip(vertex_ids, transforms):
             if idx >= 0:
                 vertex_dict = self.graph.vertices[idx]
                 x, y, theta = vertex_dict['pose_for_visualization']
                 grid = vertex_dict['grid'].grid
                 #print('GT x, y, theta:', x, y, theta)
-                np.savetxt(os.path.join(save_dir, 'cand_grid_{}.txt'.format(idx)), grid)
+                np.savez(os.path.join(save_dir, 'cand_grid_{}.npz'.format(idx)), grid)
                 if tf is not None:
                     tf_data.append([idx] + list(tf))
                 else:
@@ -204,21 +206,23 @@ class Localizer():
         start_img_front = self.img_front
         start_img_back = self.img_back
         start_cloud = self.cloud
+        start_grid = self.grid
         #print('Position at start:', self.global_pose_for_visualization)
         self.graph.global_pose_for_visualization = self.global_pose_for_visualization
         if self.cloud is not None:
             vertex_ids_pr_raw, vertex_ids_pr, transforms, pr_scores, reg_scores = self.graph.get_k_most_similar(self.img_front, 
                                                                                                                 self.img_back, 
                                                                                                                 self.cloud, 
+                                                                                                                self.grid,
                                                                                                                 self.stamp,
                                                                                                                 k=self.top_k)
             t2 = time.time()
             #print('Get k most similar time:', t2 - t1)
-            #save_dir = os.path.join(tests_dir, 'test_{}'.format(self.cnt))
-            #self.cnt += 1
-            #if not os.path.exists(save_dir):
-            #    os.mkdir(save_dir)
-            #self.save_reg_test_data(vertex_ids_pr_raw, transforms, pr_scores, reg_scores, save_dir)
+            save_dir = os.path.join(tests_dir, 'test_{}'.format(self.cnt))
+            self.cnt += 1
+            if not os.path.exists(save_dir):
+               os.mkdir(save_dir)
+            self.save_reg_test_data(vertex_ids_pr_raw, transforms, pr_scores, reg_scores, save_dir)
             t3 = time.time()
             #print('Saving time:', t3 - t2)
             vertex_ids_pr_unmatched = [idx for idx in vertex_ids_pr_raw if idx not in vertex_ids_pr]
@@ -255,11 +259,12 @@ class Localizer():
         #print('Cloud publish time:', t5 - t4)
         #print('Localization time:', t5 - t1)
         if len(vertex_ids) > 0:
-        #     self.localized_x, self.localized_y, self.localized_theta = start_global_pose
+            self.localized_x, self.localized_y, self.localized_theta = start_global_pose
             self.localized_stamp = start_stamp
         #     self.localized_img_front = start_img_front
         #     self.localized_img_back = start_img_back
             self.localized_cloud = start_cloud
+            self.localized_grid = self.grid
         if self.publish:
             self.publish_result(vertex_ids, rel_poses)
         return vertex_ids, rel_poses
