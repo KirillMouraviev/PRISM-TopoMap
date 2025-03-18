@@ -3,7 +3,7 @@ The PRISM-TopoMap - online topological mapping method with place recognition and
 
 ## Paper
 
-The PRISM-TopoMap method is described in the [paper](https://arxiv.org/abs/2404.01674). If you use this code in your research, please cite this paper. A bibtex entry is provided below.
+The PRISM-TopoMap method is described in the [paper](https://arxiv.org/abs/2404.01674) accepted to IEEE Robotics and Automation Letters in 2025. If you use this code in your research, please cite this paper. A bibtex entry is provided below.
 
 ```
 @article{muravyev2025prism,
