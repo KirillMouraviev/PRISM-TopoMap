@@ -11,7 +11,7 @@ input:
     ceiling_height: 5.0
   subscribe_to_gt_pose: true
   gt_pose:
-    topic: /odom_corrected
+    topic: /odom_gt
     type: Odometry
   subscribe_to_images: false
   odometry:
@@ -20,9 +20,9 @@ input:
 topomap:
   mode: localization
   start_location: 0
-  start_local_pose: [0, 0, 0]
+  start_local_pose: [0, 0, -0.4]
   iou_threshold: 0.3
-  max_edge_length: 8.0
+  max_edge_length: 5.0
   localization_frequency: 2.0
   rel_pose_correction_frequency: 0.5
 place_recognition:
@@ -38,20 +38,23 @@ local_occupancy_grid:
 scan_matching:
   model: feature2d
   detector_type: ORB
-  score_threshold: 0.6
+  score_threshold: 0.4
   #outlier_thresholds: [2.5, 1, 0.5, 0.25, 0.25]
-  outlier_thresholds: [5, 2, 1, 0.5, 0.5]
-  voxel_downsample_size: 0.1
+  outlier_thresholds: [15, 7, 1, 0.1, 0.1]
+  #outlier_thresholds: [5, 2, 1, 0.5, 0.5]
+  voxel_downsample_size: 0.2
   min_matches: 5
+  save_dir: /home/kirill/test_registration
 scan_matching_along_edge:
   save_dir: /home/kirill/test_inline_registration
   model: feature2d
   detector_type: HarrisWithDistance
-  score_threshold: 0.5
+  score_threshold: 0.35
   #outlier_thresholds: [2.5, 1, 0.5, 0.25, 0.25]
   outlier_thresholds: [5, 2, 1, 0.5, 0.5]
-  voxel_downsample_size: 0.1
+  voxel_downsample_size: 0.2
   min_matches: 5
+  jump_threshold: 2.0
 visualization:
   publish_gt_map: false
   map_frame: map

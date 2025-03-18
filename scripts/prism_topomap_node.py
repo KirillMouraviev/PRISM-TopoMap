@@ -29,7 +29,7 @@ rospy.init_node('prism_topomap_node')
 class PRISMTopomapNode():
     def __init__(self):
         print('File:', __file__)
-        self.path_to_gt_map = rospy.get_param('~path_to_gt_map')
+        self.path_to_gt_map = rospy.get_param('~path_to_gt_map', None)
         self.path_to_load_graph = rospy.get_param('~path_to_load_graph', None)
         self.path_to_save_graph = rospy.get_param('~path_to_save_graph', None)
         rospack = rospkg.RosPack()
@@ -53,9 +53,13 @@ class PRISMTopomapNode():
         self.tfbr = tf.TransformBroadcaster()
         self.init_publishers_and_subscribers(self.config)
 
+        if self.publish_gt_map_flag and self.path_to_gt_map is None:
+            print('ERROR! Path to gt map is not set but publish_gt_map is set true')
+            exit(1)
+
         self.current_stamp = None
         rospy.Timer(rospy.Duration(self.localization_frequency), self.toposlam_model.localizer.localize)
-        rospy.Timer(rospy.Duration(self.rel_pose_correction_frequency), self.toposlam_model.correct_rel_pose)
+        # rospy.Timer(rospy.Duration(self.rel_pose_correction_frequency), self.toposlam_model.correct_rel_pose)
 
     def init_publishers_and_subscribers(self, config):
         # GT map
@@ -504,6 +508,9 @@ class PRISMTopomapNode():
                 print('Waiting for sync pose and images timed out!')
                 return
         self.cur_global_pose = cur_global_pose
+        if self.cur_global_pose is None:
+            print('No global pose!')
+            return
         
         # print('Cur odom pose:', cur_odom_pose)
         self.current_stamp = msg.header.stamp

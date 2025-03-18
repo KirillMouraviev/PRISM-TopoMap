@@ -55,12 +55,17 @@ class Localizer():
         np.savez(os.path.join(save_dir, 'ref_grid.npz'), self.grid.grid)
         #print('Mean of the ref cloud:', self.localized_cloud[:, :3].mean())
         tf_data = []
-        gt_pose_data = [list(self.global_pose_for_visualization)]
+        if self.global_pose_for_visualization is not None:
+            gt_pose_data = [list(self.global_pose_for_visualization)]
+        else:
+            print('No global pose for visualization to save reg test data!')
+            return
         for idx, tf in zip(vertex_ids, transforms):
             if idx >= 0:
                 vertex_dict = self.graph.vertices[idx]
                 x, y, theta = vertex_dict['pose_for_visualization']
                 grid = vertex_dict['grid'].grid
+                #print('Grid max:', grid.max())
                 #print('GT x, y, theta:', x, y, theta)
                 np.savez(os.path.join(save_dir, 'cand_grid_{}.npz'.format(idx)), grid)
                 if tf is not None:
@@ -194,7 +199,8 @@ class Localizer():
             print('Waiting for message to initialize localizer...')
             return
         dt = (rospy.Time.now() - self.stamp).to_sec()
-        #print('Localization lag:', dt)
+        print('Localization lag:', dt)
+        print('Localized from stamp', self.stamp.to_sec())
         vertex_ids = []
         rel_poses = []
         freeze_msg = Bool()
@@ -259,7 +265,8 @@ class Localizer():
         #print('Cloud publish time:', t5 - t4)
         #print('Localization time:', t5 - t1)
         if len(vertex_ids) > 0:
-            self.localized_x, self.localized_y, self.localized_theta = start_global_pose
+            if start_global_pose is not None:
+                self.localized_x, self.localized_y, self.localized_theta = start_global_pose
             self.localized_stamp = start_stamp
         #     self.localized_img_front = start_img_front
         #     self.localized_img_back = start_img_back

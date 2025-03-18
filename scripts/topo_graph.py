@@ -253,25 +253,28 @@ class TopologicalGraph():
                 continue
             t1 = time.time()
             cand_vertex_dict = self.vertices[idx]
-            cand_grid = cand_vertex_dict['grid']
-            grid.grid[grid.grid > 2] = 0
-            cand_grid.grid[cand_grid.grid > 2] = 0
+            cand_grid = cand_vertex_dict['grid'].copy()
+            grid_copy = grid.copy()
+            # grid_copy.grid[grid.grid > 2] = 0
+            # cand_grid.grid[cand_grid.grid > 2] = 0
             cand_grid_tensor = torch.Tensor(cand_grid.grid).to(self.device)
-            ref_grid_tensor = torch.Tensor(grid.grid).to(self.device)
+            ref_grid_tensor = torch.Tensor(grid_copy.grid).to(self.device)
             start_time = time.time()
             save_dir = os.path.join(self.pr_results_save_path, str(stamp))
-            transform, score = self.registration_pipeline.infer(ref_grid_tensor, cand_grid_tensor, save_dir=save_dir)
+            # !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+            transform, score = self.registration_pipeline.infer(ref_grid_tensor, cand_grid_tensor, save_dir=save_dir, verbose=True)
             t2 = time.time()
             #print('Registration time:', t2 - t1)
             #t3 = time.time()
             #print('ICP time:', t3 - t2)
             #if score_icp < 0.8:
             reg_scores.append(score)
-            #print('Registration score of vertex {} is {}'.format(idx, score))
+            print('Registration score of vertex {} is {}'.format(idx, score))
             if score < self.registration_score_threshold:
                 pred_i_filtered.append(-1)
                 pred_tf.append([0, 0, 0, 0, 0, 0])
             else:
+            # !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
                 tf_matrix = cand_grid.get_tf_matrix_xy(*transform)
                 pred_i_filtered.append(idx)
                 tf_rotation = Rotation.from_matrix(tf_matrix[:3, :3]).as_rotvec()
@@ -293,18 +296,23 @@ class TopologicalGraph():
         return pred_i, pred_i_filtered, np.array(pred_tf), pr_scores, reg_scores
 
     def get_transform_to_vertex(self, vertex_id, grid):
+        print('Trying to match to vertex {}'.format(vertex_id))
         #return get_rel_pose(*self.global_pose_for_visualization, *self.vertices[vertex_id]['pose_for_visualization'])
         cand_grid = self.vertices[vertex_id]['grid']
         cand_grid_tensor = torch.Tensor(cand_grid.grid).to(self.device)
         ref_grid_tensor = torch.Tensor(grid.grid).to(self.device)
         #print('                Ref grid:', grid.max())
         #print('                Cand grid:', cand_grid.max())
-        transform, score = self.inline_registration_pipeline.infer(ref_grid_tensor, cand_grid_tensor)
+
+        transform, score = self.inline_registration_pipeline.infer(ref_grid_tensor, cand_grid_tensor, verbose=False)
+        print('TRANSFORM:', transform)
+        print('Score:', score)
         if score > self.inline_registration_score_threshold:
             tf_matrix = cand_grid.get_tf_matrix_xy(*transform)
             x = tf_matrix[0, 3]
             y = tf_matrix[1, 3]
             _, __, theta = Rotation.from_matrix(tf_matrix[:3, :3]).as_rotvec()
+            print('X Y THETA:', x, y, theta)
             return x, y, theta
         return None, None, None
 
