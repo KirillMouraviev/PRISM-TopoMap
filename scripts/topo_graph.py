@@ -105,7 +105,8 @@ class TopologicalGraph():
         self.vertices = j['vertices']
         self.adj_lists = j['edges']
         for i in range(len(self.vertices)):
-            grid = np.load(os.path.join(input_path, '{}_grid.npz'.format(i)))['arr_0']
+            #grid = np.load(os.path.join(input_path, '{}_grid.npz'.format(i)))['arr_0']
+            grid = imread(os.path.join(input_path, '{}_grid.png'.format(i)))
             self.vertices[i]['grid'] = LocalGrid(resolution=self.grid_resolution, radius=self.grid_radius, \
                                                  max_range=self.max_grid_range, grid=grid)
             #img_front = imread(os.path.join(input_path, '{}_img_front.png'.format(i)))
@@ -484,7 +485,8 @@ class TopologicalGraph():
         self.vertices = list(self.vertices)
         for i in range(len(self.vertices)):
             vertex_dict = self.vertices[i]
-            np.savez(os.path.join(output_path, '{}_grid.npz'.format(i)), vertex_dict['grid'].grid)
+            imsave(os.path.join(output_path, '{}_grid.png'.format(i)), vertex_dict['grid'].grid)
+            #np.savez(os.path.join(output_path, '{}_grid.npz'.format(i)), vertex_dict['grid'].grid)
             #imsave(os.path.join(output_path, '{}_img_front.png'.format(i)), vertex_dict['img_front'])
             #imsave(os.path.join(output_path, '{}_img_back.png'.format(i)), vertex_dict['img_back'])
             x, y, theta = vertex_dict['pose_for_visualization']

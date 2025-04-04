@@ -139,6 +139,7 @@ class TopoSLAMModel():
         # Point cloud
         pointcloud_config = input_config['pointcloud']
         pointcloud_topic = pointcloud_config['topic']
+        print('Pointcloud topic', pointcloud_topic)
         self.pcd_fields = pointcloud_config['fields']
         self.pcd_rotation = np.array(pointcloud_config['rotation_matrix'])
         self.pcd_subscriber = rospy.Subscriber(pointcloud_topic, PointCloud2, self.pcd_callback)
@@ -382,7 +383,7 @@ class TopoSLAMModel():
             print('No odometry available!')
             return None, None, None, None
         if len(self.gt_poses) == 0:
-            print('No pose available!')
+            print('No GT pose available!')
             return None, None, None, None
         if len(self.rgb_buffer_front) == 0:
             print('No front image available!')
