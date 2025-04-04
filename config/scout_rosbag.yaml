@@ -11,7 +11,7 @@ input:
     topic: /odom
     type: Odometry
   gt_pose:
-    topic: /odom_corrected
+    topic: /odom_gt
     type: Odometry
   image_front:
     topic: /camera/color/image_raw
