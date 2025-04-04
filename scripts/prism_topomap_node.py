@@ -342,12 +342,13 @@ class PRISMTopomapNode():
 
     def get_sync_pose_and_images(self, timestamp, arrays, is_pose_array):
         result = []
+        delta = 0.05
         for array, is_pose in zip(arrays, is_pose_array):
             if len(array) == 0:
                 result.append(None)
             else:
                 i = 0
-                while i < len(array) and array[i][0] < timestamp:
+                while i < len(array) and array[i][0] < timestamp - delta:
                     i += 1
                 if i == len(array):
                     result.append(None)
@@ -499,7 +500,7 @@ class PRISMTopomapNode():
             [self.gt_poses, self.odom_poses, self.rgb_buffer_front, self.rgb_buffer_back, self.curb_clouds],
             [True, True, False, False, False])
         start_time = rospy.Time.now().to_sec()
-        while cur_odom_pose is None:
+        while cur_odom_pose is None or (self.use_images and cur_img_front is None) or (self.use_images and cur_img_back is None):
             cur_global_pose, cur_odom_pose, cur_img_front, cur_img_back, cur_curbs = self.get_sync_pose_and_images(msg.header.stamp.to_sec(),
                 [self.gt_poses, self.odom_poses, self.rgb_buffer_front, self.rgb_buffer_back, self.curb_clouds],
                 [True, True, False, False, False])

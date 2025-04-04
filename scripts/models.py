@@ -3,7 +3,7 @@ from omegaconf import OmegaConf
 import torch
 import faiss
 from opr.pipelines.registration import PointcloudRegistrationPipeline, RansacGlobalRegistrationPipeline
-from opr.pipelines.registration.occupancy_grid import Feature2DGlobalRegistrationPipeline
+from opr.pipelines.registration.occupancy_grid_4 import Feature2DGlobalRegistrationPipeline
 from opr.models.place_recognition import MinkLoc3D
 
 def get_place_recognition_model(config):
@@ -20,7 +20,7 @@ def get_place_recognition_model(config):
         model_config = OmegaConf.load(MODEL_CONFIG_PATH)
         model = instantiate(model_config)
         load = torch.load(WEIGHTS_PATH)
-        model.load_state_dict(torch.load(WEIGHTS_PATH)['model_state_dict'])
+        model.load_state_dict(load)#torch.load(WEIGHTS_PATH)['model_state_dict'])
         model = model.to("cuda")
         model.eval()
         index = faiss.IndexFlatL2(512)

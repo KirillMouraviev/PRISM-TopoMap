@@ -21,8 +21,6 @@ from opr.datasets.augmentations import DefaultHM3DImageTransform
 import MinkowskiEngine as ME
 import open3d as o3d
 import open3d.pipelines.registration as registration
-from toposlam_msgs.msg import Edge
-from toposlam_msgs.msg import TopologicalGraph as TopologicalGraphMessage
 from local_grid import LocalGrid
 from utils import get_rel_pose
 
@@ -37,6 +35,7 @@ class TopologicalGraph():
                  map_frame='map',
                  registration_score_threshold=0.5,
                  inline_registration_score_threshold=0.5,
+                 pointcloud_quantization_size=0.2,
                  grid_resolution=0.1,
                  grid_radius=18.0,
                  max_grid_range=8.0,
@@ -55,7 +54,7 @@ class TopologicalGraph():
         self.grid_radius = grid_radius
         self.max_grid_range = max_grid_range
         self.ref_cloud_pub = rospy.Publisher('/ref_cloud', PointCloud2, latch=True, queue_size=100)
-        self._pointcloud_quantization_size = 0.2
+        self._pointcloud_quantization_size = pointcloud_quantization_size
         self.floor_height = floor_height
         self.ceil_height = ceil_height
         self.device = torch.device('cuda:0')
@@ -73,6 +72,7 @@ class TopologicalGraph():
         out_dict: Dict[str, Tensor] = {}
         for key in input_data:
             if key.startswith("image_"):
+                print('Image shape:', input_data[key].shape, input_data[key].unsqueeze(0).shape)
                 out_dict[f"images_{key[6:]}"] = input_data[key].unsqueeze(0).to(self.device)
             elif key.startswith("mask_"):
                 out_dict[f"masks_{key[5:]}"] = input_data[key].unsqueeze(0).to(self.device)
@@ -102,7 +102,8 @@ class TopologicalGraph():
         self.vertices = j['vertices']
         self.adj_lists = j['edges']
         for i in range(len(self.vertices)):
-            grid = np.load(os.path.join(input_path, '{}_grid.npz'.format(i)))['arr_0']
+            #grid = np.load(os.path.join(input_path, '{}_grid.npz'.format(i)))['arr_0']
+            grid = imread(os.path.join(input_path, '{}_grid.png'.format(i)))
             self.vertices[i]['grid'] = LocalGrid(resolution=self.grid_resolution, radius=self.grid_radius, \
                                                  max_range=self.max_grid_range, grid=grid)
             #img_front = imread(os.path.join(input_path, '{}_img_front.png'.format(i)))
@@ -205,8 +206,8 @@ class TopologicalGraph():
             input_data['image_front'] = img_front_tensor
         if img_back is not None:
             img_back_tensor = torch.Tensor(img_back).cuda()
-            input_data['image_back'] = img_back_tensor
             img_back_tensor = torch.permute(img_back_tensor, (2, 0, 1))
+            input_data['image_back'] = img_back_tensor
         if cloud is not None:
             cloud_with_fields = np.zeros((cloud.shape[0]), dtype=[
                 ('x', np.float32),
@@ -262,7 +263,7 @@ class TopologicalGraph():
             start_time = time.time()
             save_dir = os.path.join(self.pr_results_save_path, str(stamp))
             # !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-            transform, score = self.registration_pipeline.infer(ref_grid_tensor, cand_grid_tensor, save_dir=save_dir, verbose=True)
+            transform, score = self.registration_pipeline.infer(ref_grid_tensor, cand_grid_tensor, save_dir=save_dir, verbose=False)
             t2 = time.time()
             #print('Registration time:', t2 - t1)
             #t3 = time.time()
@@ -304,7 +305,7 @@ class TopologicalGraph():
         #print('                Ref grid:', grid.max())
         #print('                Cand grid:', cand_grid.max())
 
-        transform, score = self.inline_registration_pipeline.infer(ref_grid_tensor, cand_grid_tensor, verbose=False)
+        transform, score = self.inline_registration_pipeline.infer(ref_grid_tensor, cand_grid_tensor, verbose=True)
         print('TRANSFORM:', transform)
         print('Score:', score)
         if score > self.inline_registration_score_threshold:
@@ -394,15 +395,14 @@ class TopologicalGraph():
         if not os.path.exists(output_path):
             os.mkdir(output_path)
         self.vertices = list(self.vertices)
+        vertices_to_save = []
         for i in range(len(self.vertices)):
             vertex_dict = self.vertices[i]
-            np.savez(os.path.join(output_path, '{}_grid.npz'.format(i)), vertex_dict['grid'].grid)
-            #imsave(os.path.join(output_path, '{}_img_front.png'.format(i)), vertex_dict['img_front'])
-            #imsave(os.path.join(output_path, '{}_img_back.png'.format(i)), vertex_dict['img_back'])
+            imsave(os.path.join(output_path, '{}_grid.png'.format(i)), vertex_dict['grid'].grid)
             x, y, theta = vertex_dict['pose_for_visualization']
             descriptor = vertex_dict['descriptor']
-            self.vertices[i] = {'pose_for_visualization': (x, y, theta), 'descriptor': [float(x) for x in list(descriptor[0])]}
-        j = {'vertices': self.vertices, 'edges': self.adj_lists}
+            vertices_to_save.append({'pose_for_visualization': (x, y, theta), 'descriptor': [float(x) for x in list(descriptor[0])]})
+        j = {'vertices': vertices_to_save, 'edges': self.adj_lists}
         fout = open(os.path.join(output_path, 'graph.json'), 'w')
         json.dump(j, fout)
         fout.close()

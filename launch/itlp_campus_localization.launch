@@ -1,6 +1,6 @@
 <launch>
   <arg name="track_name"/>
-  <arg name="path_to_load_graph" default="/media/kirill/7CM/ITLP_campus_bags/topo_graph_for_tracks_with_curbs"/>
+  <arg name="path_to_load_graph" default="/setup_your_path_here"/>
   <arg name="config_file" default="itlp_campus_localization.yaml"/>
 
   <node pkg="prism_topomap" type="prism_topomap_node.py" name="prism_topomap_node" output="screen">

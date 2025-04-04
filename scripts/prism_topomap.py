@@ -11,6 +11,7 @@ import sys
 import tf
 import time
 import yaml
+import torch
 from localization import Localizer
 from utils import *
 from topo_graph import TopologicalGraph
@@ -59,6 +60,7 @@ class TopoSLAMModel():
                                       registration_model=self.registration_model,
                                       inline_registration_model=self.inline_registration_model,
                                       map_frame=self.map_frame,
+                                      pointcloud_quantization_size=self.pointcloud_quantization_size,
                                       registration_score_threshold=self.registration_score_threshold,
                                       inline_registration_score_threshold=self.inline_registration_score_threshold,
                                       grid_resolution=self.grid_resolution,
@@ -73,6 +75,7 @@ class TopoSLAMModel():
         self.localizer = Localizer(self.graph, map_frame=self.map_frame, top_k=self.top_k)
 
         self.localization_time = 0
+        self.last_successful_match_time = 0
         self.cur_iou = 0
         self.localization_results = ([], [])
         self.edge_reattach_cnt = 0
@@ -100,12 +103,14 @@ class TopoSLAMModel():
         self.localization_frequency = topomap_config['localization_frequency']
         self.rel_pose_correction_frequency = topomap_config['rel_pose_correction_frequency']
         self.max_edge_length = topomap_config['max_edge_length']
+        self.drift_coef = topomap_config['drift_coef']
         # Input
         pointcloud_config = config['input']['pointcloud']
         self.floor_height = pointcloud_config['floor_height']
         self.ceil_height = pointcloud_config['ceiling_height']
         # Place recognition
         place_recognition_config = config['place_recognition']
+        self.pointcloud_quantization_size = place_recognition_config['pointcloud_quantization_size']
         self.place_recognition_model, self.place_recognition_index = get_place_recognition_model(place_recognition_config)
         self.top_k = place_recognition_config['top_k']
         # Local grid
@@ -307,6 +312,7 @@ class TopoSLAMModel():
             print('Diff:', diff)
             if diff < self.local_jump_threshold:
                 print('\n\n\n Change to vertex {} by edge \n\n\n'.format(nearest_vertex_id))
+                self.last_successful_match_time = timestamp.to_sec()
                 changed = True
                 self.rel_pose_of_vcur = self.graph.inverse_transform(x, y, theta)
             else:
@@ -350,6 +356,7 @@ class TopoSLAMModel():
             print('IoU threshold is {}'.format(iou_threshold))
             print('Need to change vcur:', self.need_to_change_vcur)
             if iou > iou_threshold or self.need_to_change_vcur:
+                self.last_successful_match_time = timestamp.to_sec()
                 found_proper_vertex = True
                 print('\n\n\n Change to vertex {} with coords ({}, {})\n\n\n'.format(v, vx, vy))
                 #last_x, last_y, last_theta = self.last_vertex['pose_for_visualization']
@@ -426,10 +433,11 @@ class TopoSLAMModel():
             # if self.check_path_condition(self.last_vertex_id, vertex_id, \
             #                              apply_pose_shift(self.rel_pose_vcur_to_loc, *self.graph.inverse_transform(*rel_pose))):# and \
                                          #vertex_id != self.last_vertex_id and not self.graph.has_edge(self.last_vertex_id, vertex_id):
-            if dst < 50 or not self.is_inside_vcur():
+            print('dt:', self.current_stamp.to_sec() - self.last_successful_match_time)
+            if self.current_stamp is None or dst < self.drift_coef * (self.current_stamp.to_sec() - self.last_successful_match_time) + 10:
                 vertex_ids_refined.append(vertex_id)
-            # else:
-                # print('Remove vertex {} from localization, it is too far'.format(vertex_id))
+            else:
+                print('Remove vertex {} from localization, it is too far'.format(vertex_id))
         vertex_ids = vertex_ids_refined
         self.localization_results = (vertex_ids, rel_poses)
         print('\n\nLocalized in vertices', vertex_ids, '\n\n')

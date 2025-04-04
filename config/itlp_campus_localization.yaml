@@ -23,10 +23,12 @@ topomap:
   start_local_pose: [0, 0, -0.4]
   iou_threshold: 0.3
   max_edge_length: 5.0
+  drift_coef: 0.2
   localization_frequency: 2.0
   rel_pose_correction_frequency: 0.5
 place_recognition:
   model: minkloc3d
+  pointcloud_quantization_size: 0.5
   #weights_path: /home/kirill/TopoSLAM/OpenPlaceRecognition/weights/place_recognition/habitat_multimodal_resnet18-gem-seqgem_minkloc3dv2.pth
   weights_path: /home/kirill/TopoSLAM/OpenPlaceRecognition/weights/place_recognition/minkloc3d_nclt.pth
   model_config_path: /home/kirill/TopoSLAM/OpenPlaceRecognition/configs/model/place_recognition/resnet18-seqgem_minkloc3dv2.yaml
