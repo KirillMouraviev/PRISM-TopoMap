@@ -660,10 +660,6 @@ class TopoSLAMModel():
                 self.last_vertex = self.graph.get_vertex(v)
                 _, rel_pose_after_localization = self.get_rel_pose_from_stamp(self.localizer.localized_stamp, verbose=True)
                 pred_rel_pose = apply_pose_shift(rel_poses[i], *rel_pose_after_localization)
-                save_dir = '/home/kirill/test_rel_pose/{}'.format(self.rel_pose_cnt)
-                if not os.path.exists(save_dir):
-                    os.mkdir(save_dir)
-                np.savetxt(os.path.join(save_dir, 'predicted_rel_pose.txt'), pred_rel_pose)
                 self.rel_pose_cnt += 1
                 self.rel_pose_of_vcur = pred_rel_pose
                 self.rel_pose_vcur_to_loc = apply_pose_shift(self.graph.inverse_transform(*pred_rel_pose_vcur_to_v), *self.rel_pose_vcur_to_loc)
@@ -693,10 +689,8 @@ class TopoSLAMModel():
             print('Old localization 2! Ignore it')
             #print((self.rel_poses_stamped[0][0] - self.localizer.localized_stamp).to_sec())
         self.rel_poses_stamped = [[self.current_stamp] + self.rel_pose_of_vcur]
-        self.graph.save_vertex(new_vertex_id)
         self.last_vertex_id = new_vertex_id
         self.last_vertex = new_vertex
-        self.graph.save_vertex(new_vertex_id)
 
     def localization_callback(self, msg):
         #self.publish_cur_cloud()

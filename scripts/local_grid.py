@@ -102,7 +102,7 @@ class LocalGrid:
         grid_aligned[:, :, 0] = cur_grid_transformed
         grid_aligned[:, :, 1] = v_grid_copy
         grid_aligned = (grid_aligned * 255).astype(np.uint8)
-        if save:
+        if False:
             # print(cnt)
             save_dir = '/home/kirill/test_iou/{}'.format(cnt)
             if not os.path.exists(save_dir):

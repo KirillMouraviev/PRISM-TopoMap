@@ -11,8 +11,6 @@ from cv_bridge import CvBridge
 import time
 from utils import apply_pose_shift
 
-tests_dir = '/home/kirill/TopoSLAM/OpenPlaceRecognition/test_registration'
-
 class Localizer():
     def __init__(self, graph, gt_map, map_frame='map', publish=True, top_k=5):
         self.graph = graph
@@ -34,8 +32,6 @@ class Localizer():
         self.dists = None
         self.cnt = 0
         self.n_loc_fails = 0
-        if not os.path.exists(tests_dir):
-            os.mkdir(tests_dir)
         self.publish = publish
         self.map_frame = map_frame
         self.result_publisher = rospy.Publisher('/localized_nodes', Float32MultiArray, latch=True, queue_size=100)
@@ -211,12 +207,6 @@ class Localizer():
                                                                                                                 self.stamp,
                                                                                                                 k=self.top_k)
             t2 = time.time()
-            #print('Get k most similar time:', t2 - t1)
-            #save_dir = os.path.join(tests_dir, 'test_{}'.format(self.cnt))
-            #self.cnt += 1
-            #if not os.path.exists(save_dir):
-            #    os.mkdir(save_dir)
-            #self.save_reg_test_data(vertex_ids_pr_raw, transforms, pr_scores, reg_scores, save_dir)
             t3 = time.time()
             #print('Saving time:', t3 - t2)
             vertex_ids_pr_unmatched = [idx for idx in vertex_ids_pr_raw if idx not in vertex_ids_pr]

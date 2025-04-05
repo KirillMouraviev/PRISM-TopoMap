@@ -63,12 +63,6 @@ class TopologicalGraph():
         self.ceil_height = ceil_height
         self.device = torch.device('cuda:0')
         self.image_transform = DefaultHM3DImageTransform(train=False)
-        self.graph_save_path = '/home/kirill/TopoSLAM/toposlam_ws/src/simple_toposlam_model/test_husky_rosbag_minkloc3d_5/graph_data'
-        if not os.path.exists(self.graph_save_path):
-            os.mkdir(self.graph_save_path)
-        self.pr_results_save_path = '/home/kirill/TopoSLAM/toposlam_ws/src/simple_toposlam_model/test_husky_rosbag_minkloc3d_5/place_recognition_data'
-        if not os.path.exists(self.pr_results_save_path):
-            os.mkdir(self.pr_results_save_path)
         self.global_pose_for_visualization = None
 
     def _preprocess_input(self, input_data: Dict[str, Tensor]) -> Dict[str, Tensor]:
