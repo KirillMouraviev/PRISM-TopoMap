@@ -1,6 +1,6 @@
 <launch>
   <arg name="path_to_gt_map" default=""/>
-  <arg name="path_to_save_json" default="/home/kirill/TopoSLAM/toposlam_ws/src/simple_toposlam_model/graph_jsons_new/scout_rosbag"/>
+  <arg name="path_to_save_json" default="/home/docker_opr/scout_rosbag"/>
   <arg name="config_file" default="scout_rosbag.yaml"/>
 
   <node pkg="prism_topomap" type="prism_topomap_node.py" name="prism_topomap_node" output="screen">
