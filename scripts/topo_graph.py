@@ -118,22 +118,18 @@ class TopologicalGraph():
         print('\n\n\n Add new vertex ({}, {}, {}) with idx {} \n\n\n'.format(x, y, theta, len(self.vertices)))
         self.adj_lists.append([])
         if cloud is not None:
-            img_front_transformed = self.image_transform(img_front)
-            #print(img_front_transformed.shape, img_front_transformed.min(), img_front_transformed.mean(), img_front_transformed.max())
-            img_back_transformed = self.image_transform(img_back)
-            #print(img_back_transformed.shape, img_back_transformed.min(), img_back_transformed.mean(), img_back_transformed.max())
-            #print('Transformed image shape:', img_front_transformed.shape)
-            img_front_tensor = torch.Tensor(img_front).cuda()
-            img_back_tensor = torch.Tensor(img_back).cuda()
-            #print('Img front min and max:', img_front_transformed.min(), img_front_transformed.max())
-            img_front_tensor = torch.permute(img_front_tensor, (2, 0, 1))
-            img_back_tensor = torch.permute(img_back_tensor, (2, 0, 1))
             input_data = {
                      'pointcloud_lidar_coords': torch.Tensor(cloud[:, :3]).cuda(),
                      'pointcloud_lidar_feats': torch.ones((cloud.shape[0], 1)).cuda(),
-                     'image_front': img_front_tensor,
-                     'image_back': img_back_tensor
                      }
+            if img_front is not None:
+                img_front_tensor = torch.permute(img_front_tensor, (2, 0, 1))
+                img_front_tensor = torch.Tensor(img_front).cuda()
+                input_data['image_front'] = img_front_tensor
+            if img_back is not None:
+                img_back_tensor = torch.Tensor(img_back).cuda()
+                img_back_tensor = torch.permute(img_back_tensor, (2, 0, 1))
+                input_data['image_back'] = img_back_tensor
             batch = self._preprocess_input(input_data)
             descriptor = self.place_recognition_model(batch)["final_descriptor"].detach().cpu().numpy()
             #descriptor = np.random.random(256)

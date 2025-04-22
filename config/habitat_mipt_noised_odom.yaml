@@ -21,8 +21,8 @@ input:
     color: rgb
 topomap:
   mode: localization
-  start_location: 1
-  start_local_pose: [5.0, 3.2, 2.0]
+  start_location: 0
+  start_local_pose: [0, 0, 0]
   iou_threshold: 0.3
   max_edge_length: 8.0
   drift_coef: 0.2
@@ -54,7 +54,7 @@ scan_matching_along_edge:
   outlier_thresholds: [5, 2, 1, 0.5, 0.5]
   voxel_downsample_size: 0.1
   min_matches: 5
-  jump_threshold: 2.0
+  jump_threshold: 0.5
   #save_dir: /home/kirill/TopoSLAM/OpenPlaceRecognition/test_inline_registration
 visualization:
   publish_gt_map: true

@@ -217,7 +217,7 @@ class PRISMTopomapNode():
         edges_marker.id = 1
         edges_marker.type = Marker.LINE_LIST
         edges_marker.header = vertices_marker.header
-        edges_marker.scale.x = 0.2
+        edges_marker.scale.x = 0.1
         edges_marker.color.r = 0
         edges_marker.color.g = 0
         edges_marker.color.b = 1
@@ -520,8 +520,8 @@ class PRISMTopomapNode():
         path_marker_msg.action = Marker.ADD
         path_marker_msg.pose.orientation.w = 1.0
         path_marker_msg.type = 4
-        path_marker_msg.scale.x = 0.2
-        path_marker_msg.scale.y = 0.2
+        path_marker_msg.scale.x = 0.3
+        path_marker_msg.scale.y = 0.3
         path_marker_msg.color.a = 0.8
         path_marker_msg.color.r = 1.0
         path_marker_msg.color.g = 1.0
@@ -544,7 +544,7 @@ class PRISMTopomapNode():
         pointgoal_msg.header.frame_id = 'current_state'
         pointgoal_msg.pose.position.x = x
         pointgoal_msg.pose.position.y = y
-        pointgoal_msg.pose.position.z = 0
+        pointgoal_msg.pose.position.z = 1
         self.pointgoal_publisher.publish(pointgoal_msg)
 
     def pcd_callback(self, msg):
@@ -594,7 +594,7 @@ class PRISMTopomapNode():
         # Publish navigation subgoal if a goal is set
         if self.metric_goal is not None:
             vcur = self.toposlam_model.last_vertex_id
-            print('Path to goal:', self.path_to_goal)
+            # print('Path to goal:', self.path_to_goal)
             if self.path_to_goal is None:
                 print('NO PATH TO GOAL!')
                 return
@@ -610,10 +610,21 @@ class PRISMTopomapNode():
                 subgoal = get_rel_pose(*cur_global_pose, self.metric_goal[0], self.metric_goal[1], 0)
             else:
                 pose_on_edge = self.toposlam_model.graph.get_edge(self.path_to_goal[0], self.path_to_goal[1])
-                print('Rel pose of vcur:', self.toposlam_model.rel_pose_of_vcur)
-                print('Pose on edge:', pose_on_edge)
-                subgoal = get_rel_pose(*self.toposlam_model.rel_pose_of_vcur, *pose_on_edge)
-                print('Subgoal:', subgoal)
+                # print('Rel pose of vcur:', self.toposlam_model.rel_pose_of_vcur)
+                # print('Pose on edge:', pose_on_edge)
+                subgoal_in_vcur_coords = pose_on_edge
+                # print('Subgoal in vcur coords:', subgoal_in_vcur_coords)
+                for i in range(1, len(self.path_to_goal) - 1):
+                    pose_on_edge = self.toposlam_model.graph.get_edge(self.path_to_goal[i], self.path_to_goal[i + 1])
+                    subgoal_in_vcur_coords_next = apply_pose_shift(subgoal_in_vcur_coords, *pose_on_edge)
+                    if self.toposlam_model.last_vertex['grid'].is_inside(*subgoal_in_vcur_coords_next):
+                        subgoal_in_vcur_coords = subgoal_in_vcur_coords_next
+                        # print('Subgoal in vcur coords:', subgoal_in_vcur_coords)
+                    else:
+                        # print('break on i:', i)
+                        break
+                subgoal = get_rel_pose(*self.toposlam_model.rel_pose_of_vcur, *subgoal_in_vcur_coords)
+                # print('Subgoal:', subgoal)
             self.publish_subgoal(subgoal)
 
     def save_graph(self):
