@@ -1,15 +1,18 @@
 input:
   pointcloud:
+    subscribe_to_curbs: false
     topic: /habitat/points
     fields: xyzrgb
-    rotation_matrix: [[0, -1, 0], [0, 0, -1], [1, 0, 0]]
+    rotation_matrix: [[1, 0, 0], [0, 1, 0], [0, 0, 1]]
     floor_height: -0.9
     ceiling_height: 1.5
+  subscribe_to_gt_pose: true
   gt_pose:
     topic: /true_pose
     type: PoseStamped
   odometry:
     topic: /odom_noised
+  subscribe_to_images: true
   image_front:
     topic: /habitat/rgb1/image
     color: rgb
@@ -17,12 +20,17 @@ input:
     topic: /habitat/rgb3/image
     color: rgb
 topomap:
+  mode: localization
+  start_location: 1
+  start_local_pose: [5.0, 3.2, 2.0]
   iou_threshold: 0.3
   max_edge_length: 8.0
+  drift_coef: 0.2
   localization_frequency: 3.0
   rel_pose_correction_frequency: 1.0
 place_recognition:
   model: minkloc3d
+  pointcloud_quantization_size: 0.2
   #weights_path: /home/kirill/TopoSLAM/OpenPlaceRecognition/weights/place_recognition/habitat_multimodal_resnet18-gem-seqgem_minkloc3dv2.pth
   weights_path: /home/kirill/TopoSLAM/OpenPlaceRecognition/weights/place_recognition/minkloc3d_nclt.pth
   model_config_path: /home/kirill/TopoSLAM/OpenPlaceRecognition/configs/model/place_recognition/resnet18-seqgem_minkloc3dv2.yaml
@@ -46,6 +54,7 @@ scan_matching_along_edge:
   outlier_thresholds: [5, 2, 1, 0.5, 0.5]
   voxel_downsample_size: 0.1
   min_matches: 5
+  jump_threshold: 2.0
   #save_dir: /home/kirill/TopoSLAM/OpenPlaceRecognition/test_inline_registration
 visualization:
   publish_gt_map: true

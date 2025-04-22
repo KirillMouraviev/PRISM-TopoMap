@@ -50,6 +50,8 @@ class PRISMTopomapNode():
         self.rgb_buffer_back = deque(maxlen=100)
         self.cv_bridge = CvBridge()
         self.cur_stamp = None
+        self.metric_goal = None
+        self.path_to_goal = None
         self.tfbr = tf.TransformBroadcaster()
         self.init_publishers_and_subscribers(self.config)
 
@@ -119,6 +121,11 @@ class PRISMTopomapNode():
         self.cur_grid_publisher = rospy.Publisher('/current_grid', OccupancyGrid, latch=True, queue_size=100)
         self.cur_grid_transformed_publisher = rospy.Publisher('/current_grid_transformed', OccupancyGrid, latch=True, queue_size=100)
         self.graph_viz_pub = rospy.Publisher('topological_map', MarkerArray, latch=True, queue_size=100)
+        # Navigation
+        self.path_publisher = rospy.Publisher('/topological_path', TopologicalPath, latch=True, queue_size=100)
+        self.path_marker_publisher = rospy.Publisher('/topological_path_marker', Marker, latch=True, queue_size=100)
+        self.goal_subscriber = rospy.Subscriber('/move_base_simple/goal', PoseStamped, self.goal_callback)
+        self.pointgoal_publisher = rospy.Publisher('/pointgoal', PoseStamped, latch=True, queue_size=100)
         # Localization and correction frequency
         topomap_config = config['topomap']
         self.localization_frequency = topomap_config['localization_frequency']
@@ -179,6 +186,10 @@ class PRISMTopomapNode():
     def back_image_callback(self, msg):
         image = self.cv_bridge.imgmsg_to_cv2(msg)[:, :, :3]
         self.rgb_buffer_back.append([msg.header.stamp.to_sec(), image])
+
+    def goal_callback(self, msg):
+        self.metric_goal = (msg.pose.position.x, msg.pose.position.y)
+        self.path_to_goal = self.toposlam_model.get_path_to_metric_goal(*self.metric_goal)
 
     def publish_graph(self):
         # Publish graph for visualization
@@ -485,6 +496,57 @@ class PRISMTopomapNode():
         cloud = get_xyz_coords_from_msg(msg, "xyz", self.pcd_rotation)
         self.curb_clouds.append([msg.header.stamp.to_sec(), cloud])
 
+    def publish_topological_path(self, path):
+        # Publish topological path
+        path_msg = TopologicalPath()
+        path_msg.header.stamp = self.current_stamp
+        for v_id in path:
+            node_msg = Int32()
+            node_msg.data = v_id
+            path_msg.nodes.append(v_id)
+        for i in range(len(path) - 1):
+            rel_x, rel_y, rel_theta = self.toposlam_model.graph.get_edge(path[i], path[i + 1])
+            point_msg = Point()
+            point_msg.x = rel_x
+            point_msg.y = rel_y
+            point_msg.z = 0
+            path_msg.rel_poses.append(point_msg)
+        self.path_publisher.publish(path_msg)
+        # Publish path marker msg
+        path_marker_msg = Marker()
+        path_marker_msg.header.stamp = self.current_stamp
+        path_marker_msg.header.frame_id = self.map_frame
+        path_marker_msg.ns = 'points_and_lines'
+        path_marker_msg.action = Marker.ADD
+        path_marker_msg.pose.orientation.w = 1.0
+        path_marker_msg.type = 4
+        path_marker_msg.scale.x = 0.2
+        path_marker_msg.scale.y = 0.2
+        path_marker_msg.color.a = 0.8
+        path_marker_msg.color.r = 1.0
+        path_marker_msg.color.g = 1.0
+        path_marker_msg.color.b = 0
+        for v_id in path:
+            pos = self.toposlam_model.graph.get_vertex(v_id)['pose_for_visualization']
+            pt = Point(pos[0], pos[1], 0.2)
+            path_marker_msg.points.append(pt)
+        self.path_marker_publisher.publish(path_marker_msg)
+
+    def publish_subgoal(self, subgoal):
+        x, y, theta = subgoal
+        self.tfbr.sendTransform((x, y, 0), 
+                                 tf.transformations.quaternion_from_euler(0, 0, theta),
+                                 self.current_stamp,
+                                 "next_state",
+                                 "current_state")
+        pointgoal_msg = PoseStamped()
+        pointgoal_msg.header.stamp = self.current_stamp
+        pointgoal_msg.header.frame_id = 'current_state'
+        pointgoal_msg.pose.position.x = x
+        pointgoal_msg.pose.position.y = y
+        pointgoal_msg.pose.position.z = 0
+        self.pointgoal_publisher.publish(pointgoal_msg)
+
     def pcd_callback(self, msg):
         if self.publish_gt_map_flag:
             self.publish_gt_map()
@@ -528,6 +590,31 @@ class PRISMTopomapNode():
         self.publish_last_vertex()
         self.publish_rel_pose()
         # print('Update by iou time:', time.time() - start_time)
+
+        # Publish navigation subgoal if a goal is set
+        if self.metric_goal is not None:
+            vcur = self.toposlam_model.last_vertex_id
+            print('Path to goal:', self.path_to_goal)
+            if self.path_to_goal is None:
+                print('NO PATH TO GOAL!')
+                return
+            if vcur in self.path_to_goal:
+                self.path_to_goal = self.path_to_goal[self.path_to_goal.index(vcur):]
+            else:
+                self.path_to_goal = self.toposlam_model.get_path_to_metric_goal(*self.metric_goal)
+            self.publish_topological_path(self.path_to_goal)
+            # Publish navigation subgoal
+            if len(self.path_to_goal) <= 2:
+                cur_global_pose = apply_pose_shift(self.toposlam_model.last_vertex['pose_for_visualization'], \
+                                                   *self.toposlam_model.rel_pose_of_vcur)
+                subgoal = get_rel_pose(*cur_global_pose, self.metric_goal[0], self.metric_goal[1], 0)
+            else:
+                pose_on_edge = self.toposlam_model.graph.get_edge(self.path_to_goal[0], self.path_to_goal[1])
+                print('Rel pose of vcur:', self.toposlam_model.rel_pose_of_vcur)
+                print('Pose on edge:', pose_on_edge)
+                subgoal = get_rel_pose(*self.toposlam_model.rel_pose_of_vcur, *pose_on_edge)
+                print('Subgoal:', subgoal)
+            self.publish_subgoal(subgoal)
 
     def save_graph(self):
         self.toposlam_model.save_graph()

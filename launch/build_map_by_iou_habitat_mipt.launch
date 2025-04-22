@@ -1,11 +1,11 @@
 <launch>
   <arg name="path_to_gt_map" default="/home/kirill/TopoSLAM/GT/mipt_map"/>
-  <arg name="path_to_save_json" default="/home/kirill/TopoSLAM/toposlam_ws/src/simple_toposlam_model/graph_jsons_new/mipt"/>
+  <arg name="path_to_load_json" default="/home/kirill/TopoSLAM/toposlam_ws/src/simple_toposlam_model/graph_jsons_new/mipt_rlnav"/>
   <arg name="config_file" default="habitat_mipt_noised_odom.yaml"/>
 
   <node pkg="prism_topomap" type="prism_topomap_node.py" name="prism_topomap_node" output="screen">
     <param name="path_to_gt_map" value="$(arg path_to_gt_map)"/>
-    <param name="path_to_save_json" value="$(arg path_to_save_json)"/>
+    <param name="path_to_load_graph" value="$(arg path_to_load_json)"/>
     <param name="config_file" value="$(arg config_file)"/>
   </node>
 

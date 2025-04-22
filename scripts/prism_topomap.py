@@ -190,6 +190,23 @@ class TopoSLAMModel():
             return True
         return False
 
+    def get_path_to_metric_goal(self, x, y):
+        min_length = np.inf
+        best_path = None
+        print('Goal coords:', x, y)
+        for v_id, v in enumerate(self.graph.vertices):
+            rel_pose_in_v = get_rel_pose(*v['pose_for_visualization'], x, y, 0)
+            if v['grid'].is_inside(*rel_pose_in_v):
+                print('Goal is inside vertex {} with coords ({}, {})'.format(v_id, v['pose_for_visualization'][0], v['pose_for_visualization'][1]))
+                path, length = self.graph.get_path_with_length(self.last_vertex_id, v_id)
+                assert path is not None
+                if length < min_length:
+                    min_length = length
+                    best_path = path
+        if best_path is None:
+            print('PATH TO METRIC GOAL NOT FOUND!!!')
+        return best_path
+
     def find_loop_closure(self, vertex_ids, dists, global_pose_for_visualization):
         found_loop_closure = False
         path = []
@@ -286,12 +303,12 @@ class TopoSLAMModel():
         print('Rel pose of vcur:', self.rel_pose_of_vcur)
         print('Pose on edge:', pose_on_edge)
         print('Rel pose to vertex:', rel_pose_to_vertex)
-        pipeline = self.graph.inline_registration_pipeline
-        save_dir = os.path.join(pipeline.save_dir, str(pipeline.cnt))
-        if not os.path.exists(save_dir):
-            os.mkdir(save_dir)
-        imsave(os.path.join(pipeline.save_dir, str(pipeline.cnt), 'ref_grid_source.png'), cur_grid.grid)
-        print('Saved source grid to:', os.path.join(pipeline.save_dir, str(pipeline.cnt), 'ref_grid_source.png'))
+        # pipeline = self.graph.inline_registration_pipeline
+        # save_dir = os.path.join(pipeline.save_dir, str(pipeline.cnt))
+        # if not os.path.exists(save_dir):
+        #     os.mkdir(save_dir)
+        # imsave(os.path.join(pipeline.save_dir, str(pipeline.cnt), 'ref_grid_source.png'), cur_grid.grid)
+        # print('Saved source grid to:', os.path.join(pipeline.save_dir, str(pipeline.cnt), 'ref_grid_source.png'))
         cur_grid_transformed = LocalGrid(
             resolution=self.cur_grid.resolution,
             radius=self.cur_grid.radius,
@@ -367,10 +384,10 @@ class TopoSLAMModel():
                 self.last_vertex = self.graph.get_vertex(v)
                 _, rel_pose_after_localization = self.get_rel_pose_from_stamp(self.localizer.localized_stamp, verbose=True)
                 pred_rel_pose = apply_pose_shift(rel_poses[i], *rel_pose_after_localization)
-                save_dir = '/home/kirill/test_rel_pose/{}'.format(self.rel_pose_cnt)
-                if not os.path.exists(save_dir):
-                    os.mkdir(save_dir)
-                np.savetxt(os.path.join(save_dir, 'predicted_rel_pose.txt'), pred_rel_pose)
+                # save_dir = '/home/kirill/test_rel_pose/{}'.format(self.rel_pose_cnt)
+                # if not os.path.exists(save_dir):
+                #     os.mkdir(save_dir)
+                # np.savetxt(os.path.join(save_dir, 'predicted_rel_pose.txt'), pred_rel_pose)
                 self.rel_pose_cnt += 1
                 self.rel_pose_of_vcur = pred_rel_pose
                 #self.rel_pose_vcur_to_loc = apply_pose_shift(self.graph.inverse_transform(*pred_rel_pose_vcur_to_v), *self.rel_pose_vcur_to_loc)

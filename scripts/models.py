@@ -3,7 +3,7 @@ from omegaconf import OmegaConf
 import torch
 import faiss
 from opr.pipelines.registration import PointcloudRegistrationPipeline, RansacGlobalRegistrationPipeline
-from opr.pipelines.registration.occupancy_grid_4 import Feature2DGlobalRegistrationPipeline
+from opr.pipelines.registration.occupancy_grid import Feature2DGlobalRegistrationPipeline
 from opr.models.place_recognition import MinkLoc3D
 
 def get_place_recognition_model(config):
