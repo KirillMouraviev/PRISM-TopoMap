@@ -194,6 +194,9 @@ class TopoSLAMModel():
         min_length = np.inf
         best_path = None
         print('Goal coords:', x, y)
+        while self.last_vertex is None:
+            print('Waiting for localization to create path...')
+            time.sleep(0.5)
         for v_id, v in enumerate(self.graph.vertices):
             rel_pose_in_v = get_rel_pose(*v['pose_for_visualization'], x, y, 0)
             if v['grid'].is_inside(*rel_pose_in_v):
