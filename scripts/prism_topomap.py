@@ -446,15 +446,16 @@ class TopoSLAMModel():
         vertex_ids_refined = []
         self.rel_pose_vcur_to_loc, _ = self.get_rel_pose_from_stamp(self.localizer.localized_stamp)
         for vertex_id, rel_pose in zip(vertex_ids, rel_poses):
-            x, y, theta = get_rel_pose(*self.last_vertex['pose_for_visualization'], *self.graph.get_vertex(vertex_id)['pose_for_visualization'])
-            dx, dy, dtheta = get_rel_pose(x, y, theta, *self.rel_pose_of_vcur)
-            dst = np.sqrt(dx ** 2 + dy ** 2)
-            print('dst:', dst)
+            if self.last_vertex is not None:
+                x, y, theta = get_rel_pose(*self.last_vertex['pose_for_visualization'], *self.graph.get_vertex(vertex_id)['pose_for_visualization'])
+                dx, dy, dtheta = get_rel_pose(x, y, theta, *self.rel_pose_of_vcur)
+                dst = np.sqrt(dx ** 2 + dy ** 2)
+                print('dst:', dst)
             # if self.check_path_condition(self.last_vertex_id, vertex_id, \
             #                              apply_pose_shift(self.rel_pose_vcur_to_loc, *self.graph.inverse_transform(*rel_pose))):# and \
                                          #vertex_id != self.last_vertex_id and not self.graph.has_edge(self.last_vertex_id, vertex_id):
             print('dt:', self.current_stamp.to_sec() - self.last_successful_match_time)
-            if self.current_stamp is None or dst < self.drift_coef * (self.current_stamp.to_sec() - self.last_successful_match_time) + 10:
+            if self.last_vertex is None or self.current_stamp is None or dst < self.drift_coef * (self.current_stamp.to_sec() - self.last_successful_match_time) + 10:
                 vertex_ids_refined.append(vertex_id)
             else:
                 print('Remove vertex {} from localization, it is too far'.format(vertex_id))
@@ -476,8 +477,8 @@ class TopoSLAMModel():
             return
         self.localization_time = rospy.Time.now().to_sec()
         if self.last_vertex is None and self.start_location is None:
-            # print('Initially attached to vertex {} from localization'.format(vertex_ids[0]))
-            self.mutex.acquire()
+            print('Initially attached to vertex {} from localization'.format(vertex_ids[0]))
+            # self.mutex.acquire()
             self.last_vertex_id = vertex_ids[0]
             self.need_to_change_vcur = False
             self.last_vertex = self.graph.get_vertex(vertex_ids[0])
@@ -486,7 +487,7 @@ class TopoSLAMModel():
             self.current_stamp = self.localizer.localized_stamp
             self.rel_poses_stamped = [[self.current_stamp] + self.rel_pose_of_vcur]
             self.accumulated_curbs = LocalGrid(resolution=self.grid_resolution, radius=self.grid_radius, max_range=self.max_grid_range)
-            self.mutex.release()
+            # self.mutex.release()
         elif self.mode == 'mapping':
             self.mutex.acquire()
             self.found_loop_closure, self.path = self.find_loop_closure(vertex_ids, dists, global_pose_for_visualization)
@@ -495,7 +496,7 @@ class TopoSLAMModel():
                 self.add_new_vertex(stamp, global_pose_for_visualization, 
                                     img_front, img_back, cloud, grid,
                                     vertex_ids, rel_poses)
-            self.mutex.release()
+            # self.mutex.release()
         # else: #!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
         #     changed = self.reattach_by_localization(self.cur_iou, 
         #                                             grid, self.localizer.localized_stamp)
@@ -535,6 +536,7 @@ class TopoSLAMModel():
 
     def update_by_iou(self, global_pose_for_visualization, cur_odom_pose, img_front, img_back, cur_cloud, cur_curbs, timestamp):
         self.mutex.acquire()
+        print('Acquired mutex in update_by_iou')
         # Update localizer
         cur_grid = LocalGrid(resolution=self.grid_resolution, radius=self.grid_radius, max_range=self.max_grid_range)
         cur_grid.load_from_cloud(cur_cloud)

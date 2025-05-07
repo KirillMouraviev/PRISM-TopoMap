@@ -301,15 +301,15 @@ class TopologicalGraph():
         #print('                Ref grid:', grid.max())
         #print('                Cand grid:', cand_grid.max())
 
-        transform, score = self.inline_registration_pipeline.infer(ref_grid_tensor, cand_grid_tensor, verbose=True)
-        print('TRANSFORM:', transform)
-        print('Score:', score)
+        transform, score = self.inline_registration_pipeline.infer(ref_grid_tensor, cand_grid_tensor, verbose=False)
+        # print('TRANSFORM:', transform)
+        # print('Score:', score)
         if score > self.inline_registration_score_threshold:
             tf_matrix = cand_grid.get_tf_matrix_xy(*transform)
             x = tf_matrix[0, 3]
             y = tf_matrix[1, 3]
             _, __, theta = Rotation.from_matrix(tf_matrix[:3, :3]).as_rotvec()
-            print('X Y THETA:', x, y, theta)
+            # print('X Y THETA:', x, y, theta)
             return x, y, theta
         return None, None, None
 

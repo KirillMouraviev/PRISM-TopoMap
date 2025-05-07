@@ -21,8 +21,6 @@ input:
     color: rgb
 topomap:
   mode: localization
-  start_location: 0
-  start_local_pose: [0, 0, 0]
   iou_threshold: 0.3
   max_edge_length: 8.0
   drift_coef: 0.2
