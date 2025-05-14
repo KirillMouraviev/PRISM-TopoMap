@@ -1,13 +1,8 @@
 import json
-import rospy
 import heapq
 import numpy as np
 import time
 import os
-import ros_numpy
-from visualization_msgs.msg import Marker, MarkerArray
-from geometry_msgs.msg import Point
-from sensor_msgs.msg import PointCloud2
 from collections import deque
 from typing import Dict
 from torch import Tensor
@@ -53,7 +48,6 @@ class TopologicalGraph():
         self.grid_resolution = grid_resolution
         self.grid_radius = grid_radius
         self.max_grid_range = max_grid_range
-        self.ref_cloud_pub = rospy.Publisher('/ref_cloud', PointCloud2, latch=True, queue_size=100)
         self._pointcloud_quantization_size = pointcloud_quantization_size
         self.floor_height = floor_height
         self.ceil_height = ceil_height
@@ -137,7 +131,6 @@ class TopologicalGraph():
                 descriptor = descriptor[np.newaxis, :]
             #print('X y theta:', x, y, theta)
             vertex_dict = {
-                'stamp': rospy.Time.now(),
                 'pose_for_visualization': [x, y, theta],
                 'img_front': img_front,
                 'img_back': img_back,
@@ -204,28 +197,6 @@ class TopologicalGraph():
             img_back_tensor = torch.Tensor(img_back).cuda()
             img_back_tensor = torch.permute(img_back_tensor, (2, 0, 1))
             input_data['image_back'] = img_back_tensor
-        if cloud is not None:
-            cloud_with_fields = np.zeros((cloud.shape[0]), dtype=[
-                ('x', np.float32),
-                ('y', np.float32),
-                ('z', np.float32),#])
-                ('r', np.uint8),
-                ('g', np.uint8),
-                ('b', np.uint8)])
-            cloud_with_fields['x'] = cloud[:, 0]
-            cloud_with_fields['y'] = cloud[:, 1]
-            cloud_with_fields['z'] = cloud[:, 2]
-            #cloud_with_fields['r'] = cloud[:, 3]
-            #cloud_with_fields['g'] = cloud[:, 4]
-            #cloud_with_fields['b'] = cloud[:, 5]
-            #cloud_with_fields = ros_numpy.point_cloud2.merge_rgb_fields(cloud_with_fields)
-            cloud_msg = ros_numpy.point_cloud2.array_to_pointcloud2(cloud_with_fields)
-            if stamp is not None:
-                cloud_msg.header.stamp = stamp
-            else:
-                cloud_msg.header.stamp = rospy.Time.now()
-            cloud_msg.header.frame_id = 'base_link'
-            self.ref_cloud_pub.publish(cloud_msg)
         t2 = time.time()
         #print('Ref cloud publish time:', t2 - t1)
         batch = self._preprocess_input(input_data)

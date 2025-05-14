@@ -26,7 +26,7 @@ def get_place_recognition_model(config):
         index = faiss.IndexFlatL2(512)
         return model, index
     else:
-        rospy.logfatal('Invalid place recognition model type {}. \
+        print('Invalid place recognition model type {}. \
                         Parameter `model` for `place_recognition` must be `minkloc3d` or `mssplace`'.format(config['model']))
         return None, None
 

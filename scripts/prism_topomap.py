@@ -1,10 +1,4 @@
-#!/usr/bin/env python
-
-import rospy
-import rospkg
 import numpy as np
-np.float = np.float64
-import ros_numpy
 import os
 import cv2
 import sys
@@ -21,8 +15,6 @@ from skimage.io import imsave
 from threading import Lock
 
 from memory_profiler import profile
-
-rospy.init_node('prism_topomap_node')
 
 class TopoSLAMModel():
     def __init__(self, config,
@@ -332,7 +324,7 @@ class TopoSLAMModel():
             print('Diff:', diff)
             if diff < self.local_jump_threshold:
                 print('\n\n\n Change to vertex {} by edge \n\n\n'.format(nearest_vertex_id))
-                self.last_successful_match_time = timestamp.to_sec()
+                self.last_successful_match_time = timestamp
                 changed = True
                 self.rel_pose_of_vcur = self.graph.inverse_transform(x, y, theta)
             else:
@@ -347,7 +339,7 @@ class TopoSLAMModel():
             self.last_vertex = self.graph.get_vertex(self.last_vertex_id)
             if self.rel_pose_vcur_to_loc is not None:
                 self.rel_pose_vcur_to_loc = apply_pose_shift(self.graph.inverse_transform(*pose_on_edge), *self.rel_pose_vcur_to_loc)
-            print('Reset rel_poses_stamped to time', self.current_stamp.to_sec())
+            print('Reset rel_poses_stamped to time', self.current_stamp)
             self.rel_poses_stamped = [[self.current_stamp] + self.rel_pose_of_vcur]
             self.accumulated_curbs = LocalGrid(resolution=self.grid_resolution, radius=self.grid_radius, max_range=self.max_grid_range)
         else:
@@ -360,7 +352,7 @@ class TopoSLAMModel():
         print('Reattach by localization')
         if len(self.rel_poses_stamped) > 0 and self.localizer.localized_stamp < self.rel_poses_stamped[0][0]:
             print('Old localization 1! Ignore it')
-            print((self.rel_poses_stamped[0][0] - self.localizer.localized_stamp).to_sec())
+            print((self.rel_poses_stamped[0][0] - self.localizer.localized_stamp))
             return False
         found_proper_vertex = False
         # First try to pass the nearest edge
@@ -376,7 +368,7 @@ class TopoSLAMModel():
             print('IoU threshold is {}'.format(iou_threshold))
             print('Need to change vcur:', self.need_to_change_vcur)
             if iou > iou_threshold or self.need_to_change_vcur:
-                self.last_successful_match_time = timestamp.to_sec()
+                self.last_successful_match_time = timestamp
                 found_proper_vertex = True
                 print('\n\n\n Change to vertex {} with coords ({}, {})\n\n\n'.format(v, vx, vy))
                 #last_x, last_y, last_theta = self.last_vertex['pose_for_visualization']
@@ -419,7 +411,7 @@ class TopoSLAMModel():
                     self.graph.add_edge(new_vertex_id, v, *pred_rel_pose)
         else:
             print('Old localization 2! Ignore it')
-            print((self.rel_poses_stamped[0][0] - self.localizer.localized_stamp).to_sec())
+            print((self.rel_poses_stamped[0][0] - self.localizer.localized_stamp))
         self.rel_poses_stamped = [[self.current_stamp] + self.rel_pose_of_vcur]
         self.accumulated_curbs = LocalGrid(resolution=self.grid_resolution, radius=self.grid_radius, max_range=self.max_grid_range)
         self.graph.save_vertex(new_vertex_id)
@@ -428,20 +420,14 @@ class TopoSLAMModel():
         self.last_vertex = new_vertex
         self.graph.save_vertex(new_vertex_id)
 
-    def update_from_localization(self, msg):
+    def update_from_localization(self, vertex_ids, rel_poses):
         print('Update from localization')
         #self.mutex.acquire()
         if len(self.rel_poses_stamped) > 0 and self.localizer.localized_stamp < self.rel_poses_stamped[0][0]:
             print('Old localization 3! Ignore it')
-            print((self.rel_poses_stamped[0][0] - self.localizer.localized_stamp).to_sec())
+            print((self.rel_poses_stamped[0][0] - self.localizer.localized_stamp))
             #self.mutex.release()
             return
-        n = msg.layout.dim[0].size // 4
-        vertex_ids = [int(x) for x in msg.data[:n]]
-        rel_poses = np.zeros((n, 3))
-        rel_poses[:, 0] = msg.data[n:2 * n]
-        rel_poses[:, 1] = msg.data[2 * n:3 * n]
-        rel_poses[:, 2] = msg.data[3 * n:4 * n]
         dists = np.sqrt(rel_poses[:, 0] ** 2 + rel_poses[:, 1] ** 2)
         vertex_ids_refined = []
         self.rel_pose_vcur_to_loc, _ = self.get_rel_pose_from_stamp(self.localizer.localized_stamp)
@@ -454,8 +440,8 @@ class TopoSLAMModel():
             # if self.check_path_condition(self.last_vertex_id, vertex_id, \
             #                              apply_pose_shift(self.rel_pose_vcur_to_loc, *self.graph.inverse_transform(*rel_pose))):# and \
                                          #vertex_id != self.last_vertex_id and not self.graph.has_edge(self.last_vertex_id, vertex_id):
-            print('dt:', self.current_stamp.to_sec() - self.last_successful_match_time)
-            if self.last_vertex is None or self.current_stamp is None or dst < self.drift_coef * (self.current_stamp.to_sec() - self.last_successful_match_time) + 10:
+            print('dt:', self.current_stamp - self.last_successful_match_time)
+            if self.last_vertex is None or self.current_stamp is None or dst < self.drift_coef * (self.current_stamp - self.last_successful_match_time) + 10:
                 vertex_ids_refined.append(vertex_id)
             else:
                 print('Remove vertex {} from localization, it is too far'.format(vertex_id))
@@ -475,7 +461,7 @@ class TopoSLAMModel():
         if len(vertex_ids) == 0:
             #self.mutex.release()
             return
-        self.localization_time = rospy.Time.now().to_sec()
+        self.localization_time = self.current_stamp
         if self.last_vertex is None and self.start_location is None:
             print('Initially attached to vertex {} from localization'.format(vertex_ids[0]))
             # self.mutex.acquire()
@@ -522,7 +508,7 @@ class TopoSLAMModel():
                 self.accumulated_curbs = LocalGrid(resolution=self.grid_resolution, radius=self.grid_radius, max_range=self.max_grid_range)
         else:
             print('Waiting for localization...')
-            rospy.sleep(2.0) # wait for localization
+            time.sleep(2.0) # wait for localization
             if self.last_vertex is None: # If localization failed, init with new vertex
                 if self.mode == 'mapping':
                     print('Add new vertex at start')
@@ -532,10 +518,11 @@ class TopoSLAMModel():
                 else:
                     while self.last_vertex is None:
                         print('Still waiting for localization... Try to move forward-backward slightly')
-                        rospy.sleep(1.0)
+                        time.sleep(1.0)
 
-    def update_by_iou(self, global_pose_for_visualization, cur_odom_pose, img_front, img_back, cur_cloud, cur_curbs, timestamp):
+    def update(self, global_pose_for_visualization, cur_odom_pose, img_front, img_back, cur_cloud, cur_curbs):
         self.mutex.acquire()
+        timestamp = self.current_stamp
         print('Acquired mutex in update_by_iou')
         # Update localizer
         cur_grid = LocalGrid(resolution=self.grid_resolution, radius=self.grid_radius, max_range=self.max_grid_range)
@@ -577,7 +564,7 @@ class TopoSLAMModel():
             self.rel_pose_of_vcur = apply_pose_shift(self.rel_pose_of_vcur, rel_x, rel_y, rel_theta)
         self.rel_poses_stamped.append([timestamp] + self.rel_pose_of_vcur)
 
-        t1 = rospy.Time.now().to_sec()
+        t1 = time.time()
         if cur_cloud is None:
             print('No point cloud received!')
             return
@@ -604,13 +591,12 @@ class TopoSLAMModel():
                 print('Low IoU {}'.format(iou))
             else:
                 print('Too far from location center')
-            #print('Last localization {} seconds ago'.format(rospy.Time.now().to_sec() - self.localization_time))
             #print(self.path[0], self.last_vertex_id)
             print('Changed:', changed)
             # !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
             if not changed:
-                print('Localization dt:', rospy.Time.now().to_sec() - self.localization_time)
-                if rospy.Time.now().to_sec() - self.localization_time < 5:
+                print('Localization dt:', time.time() - self.localization_time)
+                if time.time() - self.localization_time < 5:
                     #print('Localized stamp:', self.localizer.localized_stamp)
                     changed = self.reattach_by_localization(self.cur_iou, cur_grid, self.localizer.localized_stamp)
                     print('Changed from localization:', changed)
