@@ -191,7 +191,7 @@ class ResultsPublisher:
         #vertices_marker = ns = 'points_and_lines'
         vertices_marker.type = Marker.POINTS
         vertices_marker.id = 0
-        vertices_marker.header.frame_id = graph.map_frame
+        vertices_marker.header.frame_id = self.map_frame
         vertices_marker.header.stamp = rospy.Time.now()
         vertices_marker.scale.x = 0.5
         vertices_marker.scale.y = 0.5
@@ -572,16 +572,20 @@ class PRISMTopomapNode():
 
     def localize(self, event=None):
         self.results_publisher.freeze()
-        vertex_ids, rel_poses, vertex_ids_unmatched = self.toposlam_model.localizer.localize(event=event)
+        self.toposlam_model.localizer.localize()
+        localized_state = self.toposlam_model.localizer.get_localized_state()
+        vertex_ids = localized_state['vertex_ids_matched']
         if vertex_ids is None:
             return
-        self.toposlam_model.update_from_localization(vertex_ids, rel_poses)
+        rel_poses = localized_state['rel_poses']
+        vertex_ids_unmatched = localized_state['vertex_ids_unmatched']
+        localized_time = localized_state['timestamp']
         if self.toposlam_model.found_loop_closure:
             self.results_publisher.publish_loop_closure_results(self.toposlam_model.path, \
                                                                 self.toposlam_model.last_vertex['global_pose_for_visualization'])
         self.results_publisher.publish_localization_results(self.toposlam_model.graph, vertex_ids, rel_poses, vertex_ids_unmatched)
         self.results_publisher.unfreeze()
-        timestamp = rospy.Time(self.toposlam_model.localizer.stamp)
+        timestamp = rospy.Time(localized_time)
         self.results_publisher.publish_ref_cloud(self.cur_cloud, timestamp)
 
     def gt_pose_callback(self, msg):

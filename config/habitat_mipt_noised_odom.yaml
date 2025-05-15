@@ -25,6 +25,7 @@ topomap:
   max_edge_length: 8.0
   drift_coef: 0.2
   localization_frequency: 3.0
+  localization_timeout: 30.0
   rel_pose_correction_frequency: 1.0
 place_recognition:
   model: minkloc3d

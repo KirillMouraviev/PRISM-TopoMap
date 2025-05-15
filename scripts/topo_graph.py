@@ -5,7 +5,6 @@ import time
 import os
 from collections import deque
 from typing import Dict
-from torch import Tensor
 
 import faiss
 import torch
@@ -13,9 +12,6 @@ from scipy.spatial.transform import Rotation
 from skimage.io import imread, imsave
 from opr.pipelines.registration import PointcloudRegistrationPipeline, RansacGlobalRegistrationPipeline, Feature2DGlobalRegistrationPipeline
 from opr.datasets.augmentations import DefaultHM3DImageTransform
-import MinkowskiEngine as ME
-import open3d as o3d
-import open3d.pipelines.registration as registration
 from local_grid import LocalGrid
 from utils import get_rel_pose
 
@@ -23,64 +19,21 @@ from memory_profiler import profile
 
 class TopologicalGraph():
     def __init__(self,
-                 place_recognition_model,
                  place_recognition_index,
-                 registration_model,
                  inline_registration_model,
-                 map_frame='map',
-                 registration_score_threshold=0.5,
                  inline_registration_score_threshold=0.5,
-                 pointcloud_quantization_size=0.2,
                  grid_resolution=0.1,
                  grid_radius=18.0,
-                 max_grid_range=8.0,
-                 floor_height=-1.0,
-                 ceil_height=2.0):
+                 max_grid_range=8.0):
         self.vertices = []
         self.adj_lists = []
-        self.map_frame = map_frame
-        self.place_recognition_model = place_recognition_model
         self.index = place_recognition_index
-        self.registration_pipeline = registration_model
-        self.registration_score_threshold = registration_score_threshold
         self.inline_registration_pipeline = inline_registration_model
         self.inline_registration_score_threshold = inline_registration_score_threshold
         self.grid_resolution = grid_resolution
         self.grid_radius = grid_radius
         self.max_grid_range = max_grid_range
-        self._pointcloud_quantization_size = pointcloud_quantization_size
-        self.floor_height = floor_height
-        self.ceil_height = ceil_height
         self.device = torch.device('cuda:0')
-        self.image_transform = DefaultHM3DImageTransform(train=False)
-        self.graph_save_path = '/home/kirill/TopoSLAM/toposlam_ws/src/simple_toposlam_model/test_husky_rosbag_minkloc3d_5/graph_data'
-        if not os.path.exists(self.graph_save_path):
-            os.mkdir(self.graph_save_path)
-        self.pr_results_save_path = '/home/kirill/TopoSLAM/toposlam_ws/src/simple_toposlam_model/test_husky_rosbag_minkloc3d_5/place_recognition_data'
-        if not os.path.exists(self.pr_results_save_path):
-            os.mkdir(self.pr_results_save_path)
-        self.global_pose_for_visualization = None
-
-    def _preprocess_input(self, input_data: Dict[str, Tensor]) -> Dict[str, Tensor]:
-        """Preprocess input data."""
-        out_dict: Dict[str, Tensor] = {}
-        for key in input_data:
-            if key.startswith("image_"):
-                print('Image shape:', input_data[key].shape, input_data[key].unsqueeze(0).shape)
-                out_dict[f"images_{key[6:]}"] = input_data[key].unsqueeze(0).to(self.device)
-            elif key.startswith("mask_"):
-                out_dict[f"masks_{key[5:]}"] = input_data[key].unsqueeze(0).to(self.device)
-            elif key == "pointcloud_lidar_coords":
-                quantized_coords, quantized_feats = ME.utils.sparse_quantize(
-                    coordinates=input_data["pointcloud_lidar_coords"],
-                    features=input_data["pointcloud_lidar_feats"],
-                    quantization_size=self._pointcloud_quantization_size,
-                )
-                out_dict["pointclouds_lidar_coords"] = ME.utils.batched_coordinates([quantized_coords]).to(
-                    self.device
-                )
-                out_dict["pointclouds_lidar_feats"] = quantized_feats.to(self.device)
-        return out_dict
 
     def normalize(self, angle):
         while angle < -np.pi:
@@ -107,33 +60,13 @@ class TopologicalGraph():
             self.index.add(np.array(self.vertices[i]['descriptor'])[np.newaxis, :])
 
     #@profile
-    def add_vertex(self, global_pose_for_visualization, img_front=None, img_back=None, cloud=None, grid=None):
+    def add_vertex(self, global_pose_for_visualization, descriptor=None, grid=None):
         x, y, theta = global_pose_for_visualization
         print('\n\n\n Add new vertex ({}, {}, {}) with idx {} \n\n\n'.format(x, y, theta, len(self.vertices)))
-        self.adj_lists.append([])
-        if cloud is not None:
-            input_data = {
-                     'pointcloud_lidar_coords': torch.Tensor(cloud[:, :3]).cuda(),
-                     'pointcloud_lidar_feats': torch.ones((cloud.shape[0], 1)).cuda(),
-                     }
-            if img_front is not None:
-                img_front_tensor = torch.permute(img_front_tensor, (2, 0, 1))
-                img_front_tensor = torch.Tensor(img_front).cuda()
-                input_data['image_front'] = img_front_tensor
-            if img_back is not None:
-                img_back_tensor = torch.Tensor(img_back).cuda()
-                img_back_tensor = torch.permute(img_back_tensor, (2, 0, 1))
-                input_data['image_back'] = img_back_tensor
-            batch = self._preprocess_input(input_data)
-            descriptor = self.place_recognition_model(batch)["final_descriptor"].detach().cpu().numpy()
-            #descriptor = np.random.random(256)
-            if len(descriptor.shape) == 1:
-                descriptor = descriptor[np.newaxis, :]
-            #print('X y theta:', x, y, theta)
+        if grid is not None:
+            self.adj_lists.append([])
             vertex_dict = {
                 'pose_for_visualization': [x, y, theta],
-                'img_front': img_front,
-                'img_back': img_back,
                 'grid': grid,
                 'descriptor': descriptor
             }
@@ -141,127 +74,6 @@ class TopologicalGraph():
             #print('Descriptor shape:', descriptor.shape)
             self.index.add(descriptor)
         return len(self.vertices) - 1
-
-    def save_vertex(self, vertex_id):
-        save_dir = os.path.join(self.graph_save_path, str(vertex_id))
-        if not os.path.exists(save_dir):
-            os.mkdir(save_dir)
-        vertex_dict = self.vertices[vertex_id]
-        pose_stamped = np.array([vertex_dict['stamp'].to_sec()] + vertex_dict['pose_for_visualization'])
-        #print('Pose stamped:', pose_stamped)
-        np.savetxt(os.path.join(save_dir, 'pose_stamped.txt'), pose_stamped)
-        #imsave(os.path.join(save_dir, 'img_front.png'), vertex_dict['img_front'])
-        #imsave(os.path.join(save_dir, 'img_back.png'), vertex_dict['img_back'])
-        np.savez(os.path.join(save_dir, 'grid.npz'), vertex_dict['grid'].grid)
-        np.savetxt(os.path.join(save_dir, 'descriptor.txt'), vertex_dict['descriptor'])
-        edges = []
-        for v, rel_pose in self.adj_lists[vertex_id]:
-            edges.append([v] + rel_pose)
-        edges = np.array(edges)
-        np.savetxt(os.path.join(save_dir, 'edges.txt'), edges)
-
-    def save_localization_results(self, state_dict, vertex_ids, transforms, pr_scores, reg_scores):
-        save_dir = os.path.join(self.pr_results_save_path, str(state_dict['stamp']))
-        if not os.path.exists(save_dir):
-            os.mkdir(save_dir)
-        imsave(os.path.join(save_dir, 'img_front.png'), state_dict['img_front'])
-        imsave(os.path.join(save_dir, 'img_back.png'), state_dict['img_back'])
-        np.savez(os.path.join(save_dir, 'grid.npz'), state_dict['grid'].grid)
-        np.savetxt(os.path.join(save_dir, 'descriptor.txt'), state_dict['descriptor'])
-        np.savetxt(os.path.join(save_dir, 'vertex_ids.txt'), vertex_ids)
-        gt_pose_data = [state_dict['pose_for_visualization']]
-        tf_data = []
-        for idx, tf in zip(vertex_ids, transforms):
-            if idx >= 0:
-                vertex_dict = self.vertices[idx]
-                if tf is not None:
-                    tf_data.append([idx] + list(tf))
-                else:
-                    tf_data.append([idx, 0, 0, 0, 0, 0, 0])
-                gt_pose_data.append(vertex_dict['pose_for_visualization'])
-        np.savetxt(os.path.join(save_dir, 'gt_poses.txt'), np.array(gt_pose_data))
-        np.savetxt(os.path.join(save_dir, 'transforms.txt'), np.array(tf_data))
-        np.savetxt(os.path.join(save_dir, 'pr_scores.txt'), np.array(pr_scores))
-        np.savetxt(os.path.join(save_dir, 'reg_scores.txt'), np.array(reg_scores))
-
-    #@profile
-    def get_k_most_similar(self, img_front, img_back, cloud, grid, stamp, k=1):
-        t1 = time.time()
-        input_data = {'pointcloud_lidar_coords': torch.Tensor(cloud[:, :3]).cuda(),
-                    'pointcloud_lidar_feats': torch.ones((cloud.shape[0], 1)).cuda()}
-        if img_front is not None:
-            img_front_tensor = torch.Tensor(img_front).cuda()
-            img_front_tensor = torch.permute(img_front_tensor, (2, 0, 1))
-            input_data['image_front'] = img_front_tensor
-        if img_back is not None:
-            img_back_tensor = torch.Tensor(img_back).cuda()
-            img_back_tensor = torch.permute(img_back_tensor, (2, 0, 1))
-            input_data['image_back'] = img_back_tensor
-        t2 = time.time()
-        #print('Ref cloud publish time:', t2 - t1)
-        batch = self._preprocess_input(input_data)
-        t3 = time.time()
-        #print('Preprocessing time:', t3 - t2)
-        descriptor = self.place_recognition_model(batch)["final_descriptor"].detach().cpu().numpy()
-        #descriptor = np.random.random(256)
-        if len(descriptor.shape) == 1:
-            descriptor = descriptor[np.newaxis, :]
-        reg_scores = []
-        dists, pred_i = self.index.search(descriptor, k)
-        t4 = time.time()
-        #print('Place recognition time:', t4 - t3)
-        pr_scores = dists[0]
-        pred_i = pred_i[0]
-        # print('Pred i:', pred_i)
-        pred_tf = []
-        pred_i_filtered = []
-        for idx in pred_i:
-            #print('Stamp {}, vertex id {}'.format(stamp, idx))
-            if idx < 0:
-                continue
-            t1 = time.time()
-            cand_vertex_dict = self.vertices[idx]
-            cand_grid = cand_vertex_dict['grid'].copy()
-            grid_copy = grid.copy()
-            # grid_copy.grid[grid.grid > 2] = 0
-            # cand_grid.grid[cand_grid.grid > 2] = 0
-            cand_grid_tensor = torch.Tensor(cand_grid.grid).to(self.device)
-            ref_grid_tensor = torch.Tensor(grid_copy.grid).to(self.device)
-            start_time = time.time()
-            save_dir = os.path.join(self.pr_results_save_path, str(stamp))
-            # !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-            transform, score = self.registration_pipeline.infer(ref_grid_tensor, cand_grid_tensor, save_dir=save_dir, verbose=False)
-            t2 = time.time()
-            #print('Registration time:', t2 - t1)
-            #t3 = time.time()
-            #print('ICP time:', t3 - t2)
-            #if score_icp < 0.8:
-            reg_scores.append(score)
-            print('Registration score of vertex {} is {}'.format(idx, score))
-            if score < self.registration_score_threshold:
-                pred_i_filtered.append(-1)
-                pred_tf.append([0, 0, 0, 0, 0, 0])
-            else:
-            # !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-                tf_matrix = cand_grid.get_tf_matrix_xy(*transform)
-                pred_i_filtered.append(idx)
-                tf_rotation = Rotation.from_matrix(tf_matrix[:3, :3]).as_rotvec()
-                tf_translation = tf_matrix[:3, 3]
-                pred_tf.append(list(tf_rotation) + list(tf_translation))
-                #print('Tf rotation:', tf_rotation)
-                #print('Tf translation:', tf_translation)
-        #print('Pred tf:', np.array(pred_tf))
-        #print('Pred i filtered:', pred_i_filtered)
-        # state_dict = {
-        #     'stamp': stamp,
-        #     'pose_for_visualization': self.global_pose_for_visualization,
-        #     'img_front': img_front,
-        #     'img_back': img_back,
-        #     'grid': grid,
-        #     'descriptor': descriptor
-        # }
-        # self.save_localization_results(state_dict, pred_i, pred_tf, pr_scores, reg_scores)
-        return pred_i, pred_i_filtered, np.array(pred_tf), pr_scores, reg_scores
 
     def get_transform_to_vertex(self, vertex_id, grid):
         print('Trying to match to vertex {}'.format(vertex_id))

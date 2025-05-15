@@ -1,17 +1,22 @@
 import os
 import numpy as np
+import torch
 import time
 from utils import apply_pose_shift
+from copy import deepcopy
+from threading import Lock
+from scipy.spatial.transform import Rotation
 
 tests_dir = '/home/kirill/TopoSLAM/OpenPlaceRecognition/test_registration'
 
 class Localizer():
-    def __init__(self, graph, map_frame='map', top_k=5):
+    def __init__(self, graph, registration_model,
+                 registration_score_threshold=0.6, top_k=5):
         self.graph = graph
+        self.registration_pipeline = registration_model
+        self.registration_score_threshold = registration_score_threshold
         self.top_k = top_k
-        self.img_front = None
-        self.img_back = None
-        self.cloud = None
+        self.descriptor = None
         self.grid = None
         self.global_pose_for_visualization = None
         self.stamp = None
@@ -19,21 +24,20 @@ class Localizer():
         self.localized_y = None
         self.localized_theta = None
         self.localized_stamp = None
-        self.localized_img_front = None
-        self.localized_img_back = None
-        self.localized_cloud = None
+        self.vertex_ids_matched = None
+        self.vertex_ids_unmatched = None
         self.rel_poses = None
         self.dists = None
         self.cnt = 0
         self.n_loc_fails = 0
         if not os.path.exists(tests_dir):
             os.mkdir(tests_dir)
-        self.map_frame = map_frame
+        self.mutex = Lock()
+        self.device = torch.device('cuda:0')
 
     def save_reg_test_data(self, vertex_ids, transforms, pr_scores, reg_scores, save_dir):
         if not os.path.exists(save_dir):
             os.mkdir(save_dir)
-        np.savez(os.path.join(save_dir, 'ref_cloud.npz'), self.cloud)
         np.savez(os.path.join(save_dir, 'ref_grid.npz'), self.grid.grid)
         #print('Mean of the ref cloud:', self.localized_cloud[:, :3].mean())
         tf_data = []
@@ -61,56 +65,113 @@ class Localizer():
         np.savetxt(os.path.join(save_dir, 'pr_scores.txt'), np.array(pr_scores))
         np.savetxt(os.path.join(save_dir, 'reg_scores.txt'), np.array(reg_scores))
 
-    def localize(self, event=None):
-        # if self.global_pose_for_visualization is None:
-        #     print('No global pose provided!')
-        #     return
+    def update_current_state(self, global_pose_for_visualization, cur_desc, cur_grid, timestamp):
+        self.mutex.acquire()
+        self.global_pose_for_visualization = global_pose_for_visualization
+        self.descriptor = cur_desc
+        self.grid = cur_grid
+        self.stamp = timestamp
+        self.mutex.release()
+
+    def write_localized_state(self, vertex_ids_matched, rel_poses, vertex_ids_pr_unmatched, start_global_pose, start_stamp):
+        self.mutex.acquire()
+        if start_global_pose is not None:
+            self.localized_x, self.localized_y, self.localized_theta = start_global_pose
+        self.localized_stamp = start_stamp
+        self.vertex_ids_matched = vertex_ids_matched
+        self.rel_poses = rel_poses
+        self.vertex_ids_unmatched = vertex_ids_pr_unmatched
+        self.mutex.release()
+
+    def get_current_state(self):
+        self.mutex.acquire()
+        result = {
+            'global_pose_for_visualization': self.global_pose_for_visualization, 
+            'descriptor': self.descriptor.copy(), 
+            'grid': self.grid.copy(), 
+            'timestamp': self.stamp
+            }
+        self.mutex.release()
+        return result
+
+    def get_localized_state(self):
+        self.mutex.acquire()
+        result = {
+            'vertex_ids_matched': deepcopy(self.vertex_ids_matched), 
+            'rel_poses': deepcopy(self.rel_poses),
+            'vertex_ids_unmatched': deepcopy(self.vertex_ids_unmatched),
+            'global_pose_for_visualization': (self.localized_x, self.localized_y, self.localized_theta),
+            'timestamp': self.localized_stamp}
+        self.mutex.release()
+        return result
+
+    def localize(self):
         if self.stamp is None:
             print('Waiting for message to initialize localizer...')
             return None, None, None
-        print('Localized from stamp', self.stamp)
+        print('Localize from stamp', self.stamp)
         vertex_ids = []
         rel_poses = []
-        t1 = time.time()
-        start_global_pose = self.global_pose_for_visualization
-        start_stamp = self.stamp
-        start_img_front = self.img_front
-        start_img_back = self.img_back
-        start_cloud = self.cloud
-        start_grid = self.grid
+        current_state = self.get_current_state()
+        start_global_pose = current_state['global_pose_for_visualization']
+        start_stamp = current_state['timestamp']
+        start_grid = current_state['grid']
+        start_desc = current_state['descriptor']
         #print('Position at start:', self.global_pose_for_visualization)
-        self.graph.global_pose_for_visualization = self.global_pose_for_visualization
-        if self.cloud is not None:
-            vertex_ids_pr_raw, vertex_ids_pr, transforms, pr_scores, reg_scores = self.graph.get_k_most_similar(self.img_front, 
-                                                                                                                self.img_back, 
-                                                                                                                self.cloud, 
-                                                                                                                self.grid,
-                                                                                                                self.stamp,
-                                                                                                                k=self.top_k)
-            t2 = time.time()
-            #print('Get k most similar time:', t2 - t1)
+        if start_grid is not None:
+            dists, pred_i = self.graph.index.search(start_desc, self.top_k)
+            #print('Place recognition time:', t4 - t3)
+            pr_scores = dists[0]
+            pred_i = pred_i[0]
+            # print('Pred i:', pred_i)
+            pred_tf = []
+            pred_i_filtered = []
+            reg_scores = []
+            for idx in pred_i:
+                #print('Stamp {}, vertex id {}'.format(stamp, idx))
+                if idx < 0:
+                    continue
+                cand_vertex_dict = self.graph.get_vertex(idx)
+                cand_grid = cand_vertex_dict['grid'].copy()
+                grid_copy = start_grid.copy()
+                # grid_copy.grid[grid.grid > 2] = 0
+                # cand_grid.grid[cand_grid.grid > 2] = 0
+                cand_grid_tensor = torch.Tensor(cand_grid.grid).to(self.device)
+                ref_grid_tensor = torch.Tensor(grid_copy.grid).to(self.device)
+                # !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+                transform, score = self.registration_pipeline.infer(ref_grid_tensor, cand_grid_tensor, verbose=False)
+                #if score_icp < 0.8:
+                reg_scores.append(score)
+                print('Registration score of vertex {} is {}'.format(idx, score))
+                if score < self.registration_score_threshold:
+                    pred_i_filtered.append(-1)
+                    pred_tf.append([0, 0, 0, 0, 0, 0])
+                else:
+                # !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+                    tf_matrix = cand_grid.get_tf_matrix_xy(*transform)
+                    pred_i_filtered.append(idx)
+                    tf_rotation = Rotation.from_matrix(tf_matrix[:3, :3]).as_rotvec()
+                    tf_translation = tf_matrix[:3, 3]
+                    pred_tf.append(list(tf_rotation) + list(tf_translation))
             save_dir = os.path.join(tests_dir, 'test_{}'.format(self.cnt))
             self.cnt += 1
             if not os.path.exists(save_dir):
                os.mkdir(save_dir)
-            self.save_reg_test_data(vertex_ids_pr_raw, transforms, pr_scores, reg_scores, save_dir)
-            t3 = time.time()
-            #print('Saving time:', t3 - t2)
-            vertex_ids_pr_unmatched = [idx for idx in vertex_ids_pr_raw if idx not in vertex_ids_pr]
+            self.save_reg_test_data(pred_i, pred_tf, pr_scores, reg_scores, save_dir)
+            vertex_ids_pr_unmatched = [idx for idx in pred_i if idx not in pred_i_filtered]
             #print('Matched indices:', [idx for idx in vertex_ids_pr if idx >= 0])
             #print('Unmatched indices:', vertex_ids_pr_unmatched)
-            rel_poses = [[tf[3], tf[4], tf[2]] for idx, tf in zip(vertex_ids_pr, transforms) if idx >= 0]
-            t4 = time.time()
+            rel_poses = [[tf[3], tf[4], tf[2]] for idx, tf in zip(pred_i_filtered, pred_tf) if idx >= 0]
         else:
+            print('Localizer not initialized!')
             vertex_ids_pr = []
-        t4 = time.time()
-        pr_scores = [pr_scores[i] for i, idx in enumerate(vertex_ids_pr) if idx >= 0]
-        reg_scores = [reg_scores[i] for i, idx in enumerate(vertex_ids_pr) if idx >= 0]
-        transforms = [transforms[i] for i, idx in enumerate(vertex_ids_pr) if idx >= 0]
+        pr_scores = [pr_scores[i] for i, idx in enumerate(pred_i_filtered) if idx >= 0]
+        reg_scores = [reg_scores[i] for i, idx in enumerate(pred_i_filtered) if idx >= 0]
+        transforms = [pred_tf[i] for i, idx in enumerate(pred_i_filtered) if idx >= 0]
         transforms = np.array(transforms)
-        vertex_ids_pr = [i for i in vertex_ids_pr if i >= 0]
-        vertex_ids_pr_unmatched = [idx for idx in vertex_ids_pr_raw if idx not in vertex_ids_pr]
-        if len(vertex_ids_pr) == 0:
+        vertex_ids_pr = [i for i in pred_i_filtered if i >= 0]
+        vertex_ids_pr_unmatched = [idx for idx in pred_i if idx not in pred_i_filtered]
+        if len(pred_i_filtered) == 0:
             self.n_loc_fails += 1
         #for i, v in enumerate(self.graph.vertices):
         for i, idx in enumerate(vertex_ids_pr):
@@ -122,14 +183,4 @@ class Localizer():
             #print('Descriptor dist:', pr_scores[i])
             #print('Reg score:', reg_scores[i])
         rel_poses = np.array(rel_poses)
-        t5 = time.time()
-        #print('Localization time:', t5 - t1)
-        if len(vertex_ids) > 0:
-            if start_global_pose is not None:
-                self.localized_x, self.localized_y, self.localized_theta = start_global_pose
-            self.localized_stamp = start_stamp
-        #     self.localized_img_front = start_img_front
-        #     self.localized_img_back = start_img_back
-            self.localized_cloud = start_cloud
-            self.localized_grid = self.grid
-        return vertex_ids, rel_poses, vertex_ids_pr_unmatched
+        self.write_localized_state(vertex_ids, rel_poses, vertex_ids_pr_unmatched, start_global_pose, start_stamp)
