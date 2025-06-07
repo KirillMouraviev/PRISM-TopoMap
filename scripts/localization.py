@@ -7,11 +7,9 @@ from copy import deepcopy
 from threading import Lock
 from scipy.spatial.transform import Rotation
 
-tests_dir = '/home/kirill/TopoSLAM/OpenPlaceRecognition/test_registration'
-
 class Localizer():
     def __init__(self, graph, registration_model,
-                 registration_score_threshold=0.6, top_k=5):
+                 registration_score_threshold=0.6, top_k=5, save_dir=None):
         self.graph = graph
         self.registration_pipeline = registration_model
         self.registration_score_threshold = registration_score_threshold
@@ -30,8 +28,9 @@ class Localizer():
         self.dists = None
         self.cnt = 0
         self.n_loc_fails = 0
-        if not os.path.exists(tests_dir):
-            os.mkdir(tests_dir)
+        self.tests_dir = save_dir
+        if self.tests_dir is not None and not os.path.exists(self.tests_dir):
+            os.mkdir(self.tests_dir)
         self.mutex = Lock()
         self.device = torch.device('cuda:0')
 
@@ -153,11 +152,12 @@ class Localizer():
                     tf_rotation = Rotation.from_matrix(tf_matrix[:3, :3]).as_rotvec()
                     tf_translation = tf_matrix[:3, 3]
                     pred_tf.append(list(tf_rotation) + list(tf_translation))
-            save_dir = os.path.join(tests_dir, 'test_{}'.format(self.cnt))
-            self.cnt += 1
-            if not os.path.exists(save_dir):
-               os.mkdir(save_dir)
-            self.save_reg_test_data(pred_i, pred_tf, pr_scores, reg_scores, save_dir)
+            if self.tests_dir is not None:
+                save_dir = os.path.join(self.tests_dir, 'test_{}'.format(self.cnt))
+                self.cnt += 1
+                if not os.path.exists(save_dir):
+                    os.mkdir(save_dir)
+                self.save_reg_test_data(pred_i, pred_tf, pr_scores, reg_scores, save_dir)
             vertex_ids_pr_unmatched = [idx for idx in pred_i if idx not in pred_i_filtered]
             #print('Matched indices:', [idx for idx in vertex_ids_pr if idx >= 0])
             #print('Unmatched indices:', vertex_ids_pr_unmatched)

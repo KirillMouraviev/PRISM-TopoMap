@@ -1,10 +1,12 @@
 <launch>
   <arg name="track_name"/>
   <arg name="path_to_load_graph" default="/setup_your_path_here"/>
+  <arg name="path_to_save_logs" default="/setup_your_path_here"/>
   <arg name="config_file" default="itlp_campus_localization.yaml"/>
 
   <node pkg="prism_topomap" type="prism_topomap_node.py" name="prism_topomap_node" output="screen">
     <param name="path_to_load_graph" value="$(arg path_to_load_graph)"/>
+    <param name="path_to_save_logs" value="$(arg path_to_save_logs)"/>
     <param name="config_file" value="$(arg config_file)"/>
   </node>
 

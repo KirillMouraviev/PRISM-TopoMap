@@ -4,7 +4,7 @@ from cv2 import warpAffine
 from utils import *
 
 class LocalGrid:
-    def __init__(self, resolution=0.1, radius=18.0, max_range=8.0, grid=None):
+    def __init__(self, resolution=0.1, radius=18.0, max_range=8.0, grid=None, save_dir=None):
         self.resolution = resolution
         self.radius = radius
         self.max_range = max_range
@@ -13,6 +13,9 @@ class LocalGrid:
             self.grid = np.zeros((grid_size, grid_size), dtype=np.uint8)
         else:
             self.grid = grid
+        self.save_dir = save_dir
+        if self.save_dir is not None and not os.path.exists(save_dir):
+            os.mkdir(save_dir)
 
     def copy(self):
         grid_copy = LocalGrid(self.resolution, self.radius, self.max_range)
@@ -116,16 +119,16 @@ class LocalGrid:
         grid_aligned[:, :, 0] = cur_grid_transformed
         grid_aligned[:, :, 1] = v_grid_copy
         grid_aligned = (grid_aligned * 255).astype(np.uint8)
-        # if save:
-        #     # print(cnt)
-        #     save_dir = '/home/kirill/test_iou/{}'.format(cnt)
-        #     if not os.path.exists(save_dir):
-        #         os.mkdir(save_dir)
-        #     np.savez(os.path.join(save_dir, 'cur_grid.npz'), self.grid)
-        #     np.savez(os.path.join(save_dir, 'cur_grid_transformed.npz'), cur_grid_transformed)
-        #     np.savez(os.path.join(save_dir, 'v_grid.npz'), v_grid_copy)
-        #     np.savetxt(os.path.join(save_dir, 'rel_pose.txt'), np.array([rel_x, rel_y, rel_theta]))
-        #     imsave(os.path.join(save_dir, 'grid_aligned.png'), grid_aligned)
+        if save and self.save_dir is not None:
+            # print(cnt)
+            save_dir = os.path.join(self.save_dir, str(cnt))
+            if not os.path.exists(save_dir):
+                os.mkdir(save_dir)
+            np.savez(os.path.join(save_dir, 'cur_grid.npz'), self.grid)
+            np.savez(os.path.join(save_dir, 'cur_grid_transformed.npz'), cur_grid_transformed)
+            np.savez(os.path.join(save_dir, 'v_grid.npz'), v_grid_copy)
+            np.savetxt(os.path.join(save_dir, 'rel_pose.txt'), np.array([rel_x, rel_y, rel_theta]))
+            imsave(os.path.join(save_dir, 'grid_aligned.png'), grid_aligned)
         return intersection / union
 
     def get_tf_matrix_xy(self, trans_i, trans_j, rot_angle):

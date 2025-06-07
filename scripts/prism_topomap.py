@@ -20,11 +20,19 @@ import MinkowskiEngine as ME
 class TopoSLAMModel():
     def __init__(self, config,
                  path_to_load_graph=None,
-                 path_to_save_graph=None):
+                 path_to_save_graph=None,
+                 path_to_save_logs=None):
         print('Intializing...')
         print('File:', __file__)
         self.path_to_load_graph = path_to_load_graph
         self.path_to_save_graph = path_to_save_graph
+        self.path_to_save_logs = path_to_save_logs
+        if self.path_to_save_logs is not None and not os.path.exists(self.path_to_save_logs):
+            os.mkdir(self.path_to_save_logs)
+        if self.path_to_save_logs is not None:
+            self.path_to_save_iou_results = os.path.join(self.path_to_save_logs, 'test_iou')
+        else:
+            self.path_to_save_iou_results = None
         self.init_params_from_config(config)
 
         self.last_vertex = None
@@ -60,9 +68,14 @@ class TopoSLAMModel():
             self.graph.load_from_json(self.path_to_load_graph)
             print('Done!')
             # print('Grid max of graph vertex 0:', self.graph.vertices[0]['grid'].grid.max())
+        if self.path_to_save_logs is not None:
+            path_to_save_localization_results = os.path.join(self.path_to_save_logs, 'localization_results')
+        else:
+            path_to_save_localization_results = None
         self.localizer = Localizer(self.graph, 
                                    registration_model=self.registration_model,
                                    registration_score_threshold=self.registration_score_threshold,
+                                   save_dir=path_to_save_localization_results,
                                    top_k=self.top_k)
 
         self.localization_time = 0
@@ -112,10 +125,20 @@ class TopoSLAMModel():
         self.max_grid_range = grid_config['max_range']
         # Registration
         registration_config = config['scan_matching']
-        self.registration_model = get_registration_model(registration_config)
+        if self.path_to_save_logs is not None:
+            path_to_save_registration_results = os.path.join(self.path_to_save_logs, 'test_registration')
+        else:
+            path_to_save_registration_results = None
+        self.registration_model = get_registration_model(registration_config, \
+                                                         save_dir=path_to_save_registration_results)
         self.registration_score_threshold = registration_config['score_threshold']
         inline_registration_config = config['scan_matching_along_edge']
-        self.inline_registration_model = get_registration_model(inline_registration_config)
+        if self.path_to_save_logs is not None:
+            path_to_save_inline_registration_results = os.path.join(self.path_to_save_logs, 'test_inline_registration')
+        else:
+            path_to_save_inline_registration_results = None
+        self.inline_registration_model = get_registration_model(inline_registration_config, \
+                                                                save_dir=path_to_save_inline_registration_results)
         self.inline_registration_score_threshold = inline_registration_config['score_threshold']
         self.local_jump_threshold = inline_registration_config['jump_threshold']
         # Map frame
@@ -132,7 +155,8 @@ class TopoSLAMModel():
             resolution=self.cur_grid.resolution,
             radius=self.cur_grid.radius,
             max_range=self.cur_grid.max_range,
-            grid=self.cur_grid.grid.copy()
+            grid=self.cur_grid.grid.copy(),
+            save_dir=self.path_to_save_iou_results
         )
         cur_grid_transformed.transform(rel_x_old, rel_y_old, -rel_theta_old)
         x, y, theta = self.graph.get_transform_to_vertex(self.last_vertex_id, cur_grid_transformed)
@@ -296,17 +320,12 @@ class TopoSLAMModel():
         print('Rel pose of vcur:', self.rel_pose_of_vcur)
         print('Pose on edge:', pose_on_edge)
         print('Rel pose to vertex:', rel_pose_to_vertex)
-        # pipeline = self.graph.inline_registration_pipeline
-        # save_dir = os.path.join(pipeline.save_dir, str(pipeline.cnt))
-        # if not os.path.exists(save_dir):
-        #     os.mkdir(save_dir)
-        # imsave(os.path.join(pipeline.save_dir, str(pipeline.cnt), 'ref_grid_source.png'), cur_grid.grid)
-        # print('Saved source grid to:', os.path.join(pipeline.save_dir, str(pipeline.cnt), 'ref_grid_source.png'))
         cur_grid_transformed = LocalGrid(
             resolution=self.cur_grid.resolution,
             radius=self.cur_grid.radius,
             max_range=self.cur_grid.max_range,
-            grid=self.cur_grid.grid.copy()
+            grid=self.cur_grid.grid.copy(),
+            save_dir=self.path_to_save_iou_results
         )
         rel_pose_to_vertex_inv = self.graph.inverse_transform(*rel_pose_to_vertex)
         cur_grid_transformed.transform(rel_pose_to_vertex_inv[0], rel_pose_to_vertex_inv[1], -rel_pose_to_vertex_inv[2])
@@ -339,7 +358,10 @@ class TopoSLAMModel():
                 self.rel_pose_vcur_to_loc = apply_pose_shift(self.graph.inverse_transform(*pose_on_edge), *self.rel_pose_vcur_to_loc)
             print('Reset rel_poses_stamped to time', self.current_stamp)
             self.rel_poses_stamped = [[self.current_stamp] + self.rel_pose_of_vcur]
-            self.accumulated_curbs = LocalGrid(resolution=self.grid_resolution, radius=self.grid_radius, max_range=self.max_grid_range)
+            self.accumulated_curbs = LocalGrid(resolution=self.grid_resolution, 
+                                               radius=self.grid_radius, 
+                                               max_range=self.max_grid_range,
+                                               save_dir=self.path_to_save_iou_results)
         else:
             print('Failed to match current cloud to vertex {}!'.format(nearest_vertex_id))
 
@@ -378,15 +400,14 @@ class TopoSLAMModel():
                 self.last_vertex = self.graph.get_vertex(v)
                 _, rel_pose_after_localization = self.get_rel_pose_from_stamp(localized_stamp, verbose=True)
                 pred_rel_pose = apply_pose_shift(rel_poses[i], *rel_pose_after_localization)
-                # save_dir = '/home/kirill/test_rel_pose/{}'.format(self.rel_pose_cnt)
-                # if not os.path.exists(save_dir):
-                #     os.mkdir(save_dir)
-                # np.savetxt(os.path.join(save_dir, 'predicted_rel_pose.txt'), pred_rel_pose)
                 self.rel_pose_cnt += 1
                 self.rel_pose_of_vcur = pred_rel_pose
                 #self.rel_pose_vcur_to_loc = apply_pose_shift(self.graph.inverse_transform(*pred_rel_pose_vcur_to_v), *self.rel_pose_vcur_to_loc)
                 self.rel_poses_stamped = [[self.current_stamp] + self.rel_pose_of_vcur]
-                self.accumulated_curbs = LocalGrid(resolution=self.grid_resolution, radius=self.grid_radius, max_range=self.max_grid_range)
+                self.accumulated_curbs = LocalGrid(resolution=self.grid_resolution, 
+                                                   radius=self.grid_radius, 
+                                                   max_range=self.max_grid_range,
+                                                   save_dir=self.path_to_save_iou_results)
                 #self.localization_time = 0
                 return True
         return False
@@ -410,7 +431,10 @@ class TopoSLAMModel():
             print('Old localization 2! Ignore it')
             print((self.rel_poses_stamped[0][0] - self.localizer.localized_stamp))
         self.rel_poses_stamped = [[self.current_stamp] + self.rel_pose_of_vcur]
-        self.accumulated_curbs = LocalGrid(resolution=self.grid_resolution, radius=self.grid_radius, max_range=self.max_grid_range)
+        self.accumulated_curbs = LocalGrid(resolution=self.grid_resolution, 
+                                           radius=self.grid_radius, 
+                                           max_range=self.max_grid_range,
+                                           save_dir=self.path_to_save_iou_results)
         self.last_vertex_id = new_vertex_id
         self.need_to_change_vcur = False
         self.last_vertex = new_vertex
@@ -424,7 +448,10 @@ class TopoSLAMModel():
                 self.rel_pose_of_vcur = self.start_local_pose
                 self.rel_pose_vcur_to_loc = self.rel_pose_of_vcur
                 self.rel_poses_stamped = [[timestamp] + self.rel_pose_of_vcur]
-                self.accumulated_curbs = LocalGrid(resolution=self.grid_resolution, radius=self.grid_radius, max_range=self.max_grid_range)
+                self.accumulated_curbs = LocalGrid(resolution=self.grid_resolution, 
+                                                   radius=self.grid_radius, 
+                                                   max_range=self.max_grid_range,
+                                                   save_dir=self.path_to_save_iou_results)
         else:
             localized_state = self.localizer.get_localized_state()
             while localized_state['vertex_ids_matched'] is None or len(localized_state['vertex_ids_matched']) == 0:
@@ -448,7 +475,10 @@ class TopoSLAMModel():
                 self.rel_pose_vcur_to_loc = self.rel_pose_of_vcur
                 self.current_stamp = self.localizer.localized_stamp
                 self.rel_poses_stamped = [[self.current_stamp] + self.rel_pose_of_vcur]
-                self.accumulated_curbs = LocalGrid(resolution=self.grid_resolution, radius=self.grid_radius, max_range=self.max_grid_range)
+                self.accumulated_curbs = LocalGrid(resolution=self.grid_resolution, 
+                                                   radius=self.grid_radius, 
+                                                   max_range=self.max_grid_range,
+                                                   save_dir=self.path_to_save_iou_results)
 
     def _preprocess_input(self, input_data: Dict[str, Tensor]) -> Dict[str, Tensor]:
         """Preprocess input data."""
@@ -489,10 +519,16 @@ class TopoSLAMModel():
         if len(cur_desc.shape) == 1:
                 cur_desc = cur_desc[np.newaxis, :]
         # Project cloud into a grid
-        cur_grid = LocalGrid(resolution=self.grid_resolution, radius=self.grid_radius, max_range=self.max_grid_range)
+        cur_grid = LocalGrid(resolution=self.grid_resolution, 
+                             radius=self.grid_radius, 
+                             max_range=self.max_grid_range,
+                             save_dir=self.path_to_save_iou_results)
         cur_grid.load_from_cloud(cur_cloud)
         if cur_curbs is not None and len(self.rel_poses_stamped) > 0:
-            grid = LocalGrid(resolution=self.grid_resolution, radius=self.grid_radius, max_range=self.max_grid_range)
+            grid = LocalGrid(resolution=self.grid_resolution, 
+                             radius=self.grid_radius, 
+                             max_range=self.max_grid_range,
+                             save_dir=self.path_to_save_iou_results)
             grid.load_curb_from_cloud(cur_curbs)
             # print(self.rel_pose_of_vcur, self.rel_poses_stamped[0])
             x, y, theta = get_rel_pose(*self.rel_poses_stamped[0][1:], *self.rel_pose_of_vcur)

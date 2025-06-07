@@ -491,6 +491,7 @@ class PRISMTopomapNode():
         self.path_to_gt_map = rospy.get_param('~path_to_gt_map', None)
         self.path_to_load_graph = rospy.get_param('~path_to_load_graph', None)
         self.path_to_save_graph = rospy.get_param('~path_to_save_graph', None)
+        self.path_to_save_logs = rospy.get_param('~path_to_save_logs', None)
         rospack = rospkg.RosPack()
         config_file = os.path.join(rospack.get_path('prism_topomap'), 'config', rospy.get_param('~config_file'))
         fin = open(config_file, 'r')
@@ -500,6 +501,7 @@ class PRISMTopomapNode():
         self.toposlam_model = TopoSLAMModel(self.config,
                                             path_to_load_graph=self.path_to_load_graph,
                                             path_to_save_graph=self.path_to_save_graph,
+                                            path_to_save_logs=self.path_to_save_logs,
                                             )
 
         self.gt_poses = []
