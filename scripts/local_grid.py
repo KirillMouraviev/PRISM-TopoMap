@@ -4,10 +4,17 @@ from cv2 import warpAffine
 from utils import *
 
 class LocalGrid:
-    def __init__(self, resolution=0.1, radius=18.0, max_range=8.0, grid=None, save_dir=None):
+    def __init__(self, 
+                 resolution=0.1, 
+                 radius=18.0, 
+                 max_range=8.0, 
+                 floor_height=0.0, ceil_height=1.0,
+                 grid=None, save_dir=None):
         self.resolution = resolution
         self.radius = radius
         self.max_range = max_range
+        self.floor_height = floor_height
+        self.ceil_height = ceil_height
         grid_size = 2 * int(radius / resolution)
         if grid is None:
             self.grid = np.zeros((grid_size, grid_size), dtype=np.uint8)
@@ -48,7 +55,7 @@ class LocalGrid:
         points_xyz = np.delete(points_xyz, index, axis=0)
         points_xyz = points_xyz[(points_xyz[:, 0] > -self.max_range) * (points_xyz[:, 0] < self.max_range) * \
                                 (points_xyz[:, 1] > -self.max_range) * (points_xyz[:, 1] < self.max_range)]
-        points_xyz_obstacles = remove_floor_and_ceil(points_xyz, floor_height=-0.3, ceil_height=0.5)
+        points_xyz_obstacles = remove_floor_and_ceil(points_xyz, floor_height=self.floor_height, ceil_height=self.ceil_height)
         #print('Points xyz:', points_xyz.shape, points_xyz[0], points_xyz.min(), points_xyz.max())
         points_ij = np.round(points_xyz[:, :2] / self.resolution).astype(int) + \
                             [int(self.radius / self.resolution), int(self.radius / self.resolution)]

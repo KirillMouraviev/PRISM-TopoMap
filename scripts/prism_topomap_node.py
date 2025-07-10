@@ -62,6 +62,7 @@ class ResultsPublisher:
         self.gt_map = GTMap(os.path.join(path_to_gt_map, gt_map_filename))
 
     def publish_localization_results(self, graph, vertex_ids_matched, rel_poses, vertex_ids_unmatched):
+        print('vertex_ids_unmatched:', vertex_ids_unmatched)
         if len(vertex_ids_matched) > 0:
             vertex_id_first = vertex_ids_matched[0]
             # Publish top-1 PlaceRecognition vertex
@@ -193,9 +194,9 @@ class ResultsPublisher:
         vertices_marker.id = 0
         vertices_marker.header.frame_id = self.map_frame
         vertices_marker.header.stamp = rospy.Time.now()
-        vertices_marker.scale.x = 0.5
-        vertices_marker.scale.y = 0.5
-        vertices_marker.scale.z = 0.5
+        vertices_marker.scale.x = 1.0
+        vertices_marker.scale.y = 1.0
+        vertices_marker.scale.z = 1.0
         vertices_marker.color.r = 1
         vertices_marker.color.g = 0
         vertices_marker.color.b = 0
@@ -209,7 +210,7 @@ class ResultsPublisher:
         edges_marker.id = 1
         edges_marker.type = Marker.LINE_LIST
         edges_marker.header = vertices_marker.header
-        edges_marker.scale.x = 0.1
+        edges_marker.scale.x = 0.5
         edges_marker.color.r = 0
         edges_marker.color.g = 0
         edges_marker.color.b = 1
@@ -641,6 +642,7 @@ class PRISMTopomapNode():
 
     def get_sync_pose_and_images(self, timestamp, arrays, is_pose_array):
         result = []
+        # print('Timestamp diff between pcd and curbs:', timestamp - self.curb_clouds[-1][0])
         delta = 0.05
         for array, is_pose in zip(arrays, is_pose_array):
             if len(array) == 0:
@@ -667,6 +669,7 @@ class PRISMTopomapNode():
         return result
 
     def curb_detection_callback(self, msg):
+        start_time = time.time()
         cloud = get_xyz_coords_from_msg(msg, "xyz", self.pcd_rotation)
         self.curb_clouds.append([msg.header.stamp.to_sec(), cloud])
 
@@ -727,6 +730,8 @@ class PRISMTopomapNode():
             if rospy.Time.now().to_sec() - start_time > 0.5:
                 print('Waiting for sync pose and images timed out!')
                 return
+        if cur_curbs is None:
+            print('Cur curbs is None!')
         self.cur_global_pose = cur_global_pose
         if self.cur_global_pose is None:
             print('No global pose!')
@@ -737,7 +742,9 @@ class PRISMTopomapNode():
         self.results_publisher.current_stamp = msg.header.stamp
         self.toposlam_model.current_stamp = msg.header.stamp.to_sec()
 
+        start_time = time.time()
         self.cur_cloud = get_xyz_coords_from_msg(msg, self.pcd_fields, self.pcd_rotation)
+        print('Time for get xyz coords or lidar cloud:', time.time() - start_time)
         start_time = time.time()
         self.toposlam_model.update(cur_global_pose, cur_odom_pose, cur_img_front, cur_img_back, self.cur_cloud, cur_curbs)
 

@@ -21,7 +21,7 @@ class Localizer():
         self.localized_x = None
         self.localized_y = None
         self.localized_theta = None
-        self.localized_stamp = None
+        self.localized_stamp = 0
         self.vertex_ids_matched = None
         self.vertex_ids_unmatched = None
         self.rel_poses = None
@@ -170,7 +170,7 @@ class Localizer():
         transforms = [pred_tf[i] for i, idx in enumerate(pred_i_filtered) if idx >= 0]
         transforms = np.array(transforms)
         vertex_ids_pr = [i for i in pred_i_filtered if i >= 0]
-        vertex_ids_pr_unmatched = [idx for idx in pred_i if idx not in pred_i_filtered]
+        vertex_ids_pr_unmatched = [idx for idx in pred_i if idx not in pred_i_filtered and idx >= 0]
         if len(pred_i_filtered) == 0:
             self.n_loc_fails += 1
         #for i, v in enumerate(self.graph.vertices):

@@ -155,6 +155,7 @@ class TopoSLAMModel():
             resolution=self.cur_grid.resolution,
             radius=self.cur_grid.radius,
             max_range=self.cur_grid.max_range,
+            floor_height=self.floor_height, ceil_height=self.ceil_height,
             grid=self.cur_grid.grid.copy(),
             save_dir=self.path_to_save_iou_results
         )
@@ -324,6 +325,7 @@ class TopoSLAMModel():
             resolution=self.cur_grid.resolution,
             radius=self.cur_grid.radius,
             max_range=self.cur_grid.max_range,
+            floor_height=self.floor_height, ceil_height=self.ceil_height,
             grid=self.cur_grid.grid.copy(),
             save_dir=self.path_to_save_iou_results
         )
@@ -361,6 +363,7 @@ class TopoSLAMModel():
             self.accumulated_curbs = LocalGrid(resolution=self.grid_resolution, 
                                                radius=self.grid_radius, 
                                                max_range=self.max_grid_range,
+                                               floor_height=self.floor_height, ceil_height=self.ceil_height,
                                                save_dir=self.path_to_save_iou_results)
         else:
             print('Failed to match current cloud to vertex {}!'.format(nearest_vertex_id))
@@ -407,6 +410,7 @@ class TopoSLAMModel():
                 self.accumulated_curbs = LocalGrid(resolution=self.grid_resolution, 
                                                    radius=self.grid_radius, 
                                                    max_range=self.max_grid_range,
+                                                   floor_height=self.floor_height, ceil_height=self.ceil_height,
                                                    save_dir=self.path_to_save_iou_results)
                 #self.localization_time = 0
                 return True
@@ -434,6 +438,7 @@ class TopoSLAMModel():
         self.accumulated_curbs = LocalGrid(resolution=self.grid_resolution, 
                                            radius=self.grid_radius, 
                                            max_range=self.max_grid_range,
+                                           floor_height=self.floor_height, ceil_height=self.ceil_height,
                                            save_dir=self.path_to_save_iou_results)
         self.last_vertex_id = new_vertex_id
         self.need_to_change_vcur = False
@@ -451,9 +456,11 @@ class TopoSLAMModel():
                 self.accumulated_curbs = LocalGrid(resolution=self.grid_resolution, 
                                                    radius=self.grid_radius, 
                                                    max_range=self.max_grid_range,
+                                                   floor_height=self.floor_height, ceil_height=self.ceil_height,
                                                    save_dir=self.path_to_save_iou_results)
         else:
             localized_state = self.localizer.get_localized_state()
+            start_time = time.time()
             while localized_state['vertex_ids_matched'] is None or len(localized_state['vertex_ids_matched']) == 0:
                 print('Still waiting for localization... Try to move forward-backward slightly')
                 time.sleep(1.0)
@@ -478,6 +485,7 @@ class TopoSLAMModel():
                 self.accumulated_curbs = LocalGrid(resolution=self.grid_resolution, 
                                                    radius=self.grid_radius, 
                                                    max_range=self.max_grid_range,
+                                                   floor_height=self.floor_height, ceil_height=self.ceil_height,
                                                    save_dir=self.path_to_save_iou_results)
 
     def _preprocess_input(self, input_data: Dict[str, Tensor]) -> Dict[str, Tensor]:
@@ -501,6 +509,12 @@ class TopoSLAMModel():
         return out_dict
 
     def process_observations(self, img_front, img_back, cur_cloud, cur_curbs):
+        if self.accumulated_curbs is None:
+            self.accumulated_curbs = LocalGrid(resolution=self.grid_resolution, 
+                                                radius=self.grid_radius, 
+                                                max_range=self.max_grid_range,
+                                                floor_height=self.floor_height, ceil_height=self.ceil_height,
+                                                save_dir=self.path_to_save_iou_results)
         # Extract descriptor from cloud and images
         input_data = {
                      'pointcloud_lidar_coords': torch.Tensor(cur_cloud[:, :3]).cuda(),
@@ -522,12 +536,14 @@ class TopoSLAMModel():
         cur_grid = LocalGrid(resolution=self.grid_resolution, 
                              radius=self.grid_radius, 
                              max_range=self.max_grid_range,
+                             floor_height=self.floor_height, ceil_height=self.ceil_height,
                              save_dir=self.path_to_save_iou_results)
         cur_grid.load_from_cloud(cur_cloud)
         if cur_curbs is not None and len(self.rel_poses_stamped) > 0:
             grid = LocalGrid(resolution=self.grid_resolution, 
                              radius=self.grid_radius, 
                              max_range=self.max_grid_range,
+                             floor_height=self.floor_height, ceil_height=self.ceil_height,
                              save_dir=self.path_to_save_iou_results)
             grid.load_curb_from_cloud(cur_curbs)
             # print(self.rel_pose_of_vcur, self.rel_poses_stamped[0])
@@ -542,6 +558,8 @@ class TopoSLAMModel():
             acc_grid.grid[acc_grid.grid >= th] = 3
             cur_grid.grid = np.maximum(cur_grid.grid, acc_grid.grid)
             cur_grid.load_curb_from_cloud(cur_curbs)
+        else:
+            print('NO CURBS!')
         return cur_desc, cur_grid
 
     def update_rel_pose_of_vcur_by_odom(self, timestamp, cur_odom_pose):
@@ -566,6 +584,8 @@ class TopoSLAMModel():
         timestamp = self.current_stamp
         if self.odom_pose is None:
             self.odom_pose = cur_odom_pose
+        # Update rel_pose_of_vcur by odometry
+        self.update_rel_pose_of_vcur_by_odom(timestamp, cur_odom_pose)
         # Update localizer and localized state
         cur_desc, cur_grid = self.process_observations(img_front, img_back, cur_cloud, cur_curbs)        
         self.localizer.update_current_state(global_pose_for_visualization, cur_desc, cur_grid, timestamp)
@@ -576,9 +596,6 @@ class TopoSLAMModel():
             self.localization_time = self.localization_results['timestamp']
         print('\n\n\n Localized in vertices: {} \n\n\n'.format(self.localization_results['vertex_ids_matched']))
         # print('Rel poses:', self.localization_results['rel_poses'])
-
-        # Update rel_pose_of_vcur by odometry
-        self.update_rel_pose_of_vcur_by_odom(timestamp, cur_odom_pose)
 
         t1 = time.time()
         if cur_cloud is None:
@@ -620,13 +637,13 @@ class TopoSLAMModel():
                             vertex_ids = self.localization_results['vertex_ids_matched']
                             rel_poses = self.localization_results['rel_poses']
                             self.add_new_vertex(timestamp, global_pose_for_visualization,
-                                                img_front, img_back, cur_cloud, cur_grid,
+                                                cur_desc, cur_grid,
                                                 vertex_ids, rel_poses)
                 else:
                     if self.mode == 'mapping':
                         print('No recent localization. Add new vertex')
                         self.add_new_vertex(timestamp, global_pose_for_visualization,
-                                            img_front, img_back, cur_cloud, cur_grid,
+                                            cur_desc, cur_grid,
                                             [], [])
                     else:
                         print('No recent localization')
