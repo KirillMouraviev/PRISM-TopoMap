@@ -72,9 +72,9 @@ class ResultsPublisher:
             vertices_marker.id = 0
             vertices_marker.header.frame_id = self.map_frame
             vertices_marker.header.stamp = rospy.Time.now()
-            vertices_marker.scale.x = 0.7
-            vertices_marker.scale.y = 0.7
-            vertices_marker.scale.z = 0.7
+            vertices_marker.scale.x = self.match_marker_size * 1.5
+            vertices_marker.scale.y = self.match_marker_size * 1.5
+            vertices_marker.scale.z = self.match_marker_size * 1.5
             vertices_marker.color.r = 0
             vertices_marker.color.g = 1
             vertices_marker.color.b = 0
@@ -91,9 +91,9 @@ class ResultsPublisher:
             vertices_marker.id = 0
             vertices_marker.header.frame_id = self.map_frame
             vertices_marker.header.stamp = rospy.Time.now()
-            vertices_marker.scale.x = 0.5
-            vertices_marker.scale.y = 0.5
-            vertices_marker.scale.z = 0.5
+            vertices_marker.scale.x = self.match_marker_size
+            vertices_marker.scale.y = self.match_marker_size
+            vertices_marker.scale.z = self.match_marker_size
             vertices_marker.color.r = 0
             vertices_marker.color.g = 1
             vertices_marker.color.b = 0
@@ -123,12 +123,13 @@ class ResultsPublisher:
 
         # Publish unmatched vertices
         vertices_marker = Marker()
+        vertices_marker.type = Marker.POINTS
         vertices_marker.id = 0
         vertices_marker.header.frame_id = self.map_frame
         vertices_marker.header.stamp = rospy.Time.now()
-        vertices_marker.scale.x = 0.5
-        vertices_marker.scale.y = 0.5
-        vertices_marker.scale.z = 0.5
+        vertices_marker.scale.x = self.match_marker_size
+        vertices_marker.scale.y = self.match_marker_size
+        vertices_marker.scale.z = self.match_marker_size
         vertices_marker.color.r = 1
         vertices_marker.color.g = 1
         vertices_marker.color.b = 0
@@ -194,9 +195,9 @@ class ResultsPublisher:
         vertices_marker.id = 0
         vertices_marker.header.frame_id = self.map_frame
         vertices_marker.header.stamp = rospy.Time.now()
-        vertices_marker.scale.x = 1.0
-        vertices_marker.scale.y = 1.0
-        vertices_marker.scale.z = 1.0
+        vertices_marker.scale.x = self.vertex_marker_size
+        vertices_marker.scale.y = self.vertex_marker_size
+        vertices_marker.scale.z = self.vertex_marker_size
         vertices_marker.color.r = 1
         vertices_marker.color.g = 0
         vertices_marker.color.b = 0
@@ -210,7 +211,7 @@ class ResultsPublisher:
         edges_marker.id = 1
         edges_marker.type = Marker.LINE_LIST
         edges_marker.header = vertices_marker.header
-        edges_marker.scale.x = 0.5
+        edges_marker.scale.x = self.edge_marker_size
         edges_marker.color.r = 0
         edges_marker.color.g = 0
         edges_marker.color.b = 1
@@ -228,7 +229,7 @@ class ResultsPublisher:
         vertex_orientation_marker.id = 2
         vertex_orientation_marker.type = Marker.LINE_LIST
         vertex_orientation_marker.header = vertices_marker.header
-        vertex_orientation_marker.scale.x = 0.05
+        vertex_orientation_marker.scale.x = self.vertex_orientation_marker_size
         vertex_orientation_marker.color.r = 1
         vertex_orientation_marker.color.g = 0
         vertex_orientation_marker.color.b = 0
@@ -244,7 +245,7 @@ class ResultsPublisher:
         text_marker = Marker()
         text_marker.header = vertices_marker.header
         text_marker.type = Marker.TEXT_VIEW_FACING
-        text_marker.scale.z = 0.4
+        text_marker.scale.z = self.text_marker_size
         text_marker.color.r = 1
         text_marker.color.g = 0.5
         text_marker.color.b = 0
@@ -259,7 +260,7 @@ class ResultsPublisher:
             text_marker.text = '{}: ({}, {}, {})'.format(i, round(x, 1), round(y, 1), round(theta, 2))
             graph_msg.markers.append(copy.deepcopy(text_marker))
             cnt += 1
-        text_marker.scale.z = 0.3
+        text_marker.scale.z = self.text_marker_size
         text_marker.color.r = 0
         text_marker.color.g = 1
         text_marker.color.b = 1
@@ -292,9 +293,9 @@ class ResultsPublisher:
         marker_msg.color.g = 1
         marker_msg.color.b = 0
         marker_msg.color.a = 1
-        marker_msg.scale.x = 0.8
-        marker_msg.scale.y = 0.8
-        marker_msg.scale.z = 0.8
+        marker_msg.scale.x = self.vcur_marker_size
+        marker_msg.scale.y = self.vcur_marker_size
+        marker_msg.scale.z = self.vcur_marker_size
         self.last_vertex_publisher.publish(marker_msg)
         vertex_id_msg = Int32()
         vertex_id_msg.data = last_vertex_id
@@ -314,9 +315,9 @@ class ResultsPublisher:
         vertices_marker.id = 0
         vertices_marker.header.frame_id = self.map_frame
         vertices_marker.header.stamp = rospy.Time.now()
-        vertices_marker.scale.x = 0.2
-        vertices_marker.scale.y = 0.2
-        vertices_marker.scale.z = 0.2
+        vertices_marker.scale.x = self.loop_closure_marker_size
+        vertices_marker.scale.y = self.loop_closure_marker_size
+        vertices_marker.scale.z = self.loop_closure_marker_size
         vertices_marker.color.r = 1
         vertices_marker.color.g = 0
         vertices_marker.color.b = 0
@@ -335,7 +336,7 @@ class ResultsPublisher:
         edges_marker.type = Marker.LINE_LIST
         edges_marker.header.frame_id = self.map_frame
         edges_marker.header.stamp = rospy.Time.now()
-        edges_marker.scale.x = 0.15
+        edges_marker.scale.x = self.loop_closure_edge_marker_size
         edges_marker.color.r = 0
         edges_marker.color.g = 1
         edges_marker.color.b = 1
@@ -361,15 +362,15 @@ class ResultsPublisher:
         local_grid_msg.header.frame_id = 'vcur'
         resolution = local_grid.resolution
         local_grid_msg.info.resolution = resolution
-        local_grid_msg.info.width = local_grid.grid.shape[1]
-        local_grid_msg.info.height = local_grid.grid.shape[0]
-        local_grid_msg.info.origin.position.x = -local_grid.grid.shape[1] * resolution / 2
-        local_grid_msg.info.origin.position.y = -local_grid.grid.shape[0] * resolution / 2
+        local_grid_msg.info.width = local_grid.grid_size
+        local_grid_msg.info.height = local_grid.grid_size
+        local_grid_msg.info.origin.position.x = -local_grid.grid_size * resolution / 2
+        local_grid_msg.info.origin.position.y = -local_grid.grid_size * resolution / 2
         local_grid_msg.info.origin.orientation.x = 0
         local_grid_msg.info.origin.orientation.y = 0
         local_grid_msg.info.origin.orientation.z = 0
         local_grid_msg.info.origin.orientation.w = 1
-        local_map = local_grid.grid.T.ravel().astype(np.int8)
+        local_map = local_grid.layers['occupancy'].T.ravel().astype(np.int8)
         local_map[local_map >= 2] = 100
         local_map[local_map == 0] = -1
         local_map[local_map == 1] = 0
@@ -382,18 +383,20 @@ class ResultsPublisher:
         local_grid_msg.header.frame_id = 'current_state'
         resolution = cur_grid.resolution
         local_grid_msg.info.resolution = resolution
-        local_grid_msg.info.width = cur_grid.grid.shape[1]
-        local_grid_msg.info.height = cur_grid.grid.shape[0]
-        local_grid_msg.info.origin.position.x = -cur_grid.grid.shape[1] * resolution / 2
-        local_grid_msg.info.origin.position.y = -cur_grid.grid.shape[0] * resolution / 2
+        local_grid_msg.info.width = cur_grid.grid_size
+        local_grid_msg.info.height = cur_grid.grid_size
+        local_grid_msg.info.origin.position.x = -cur_grid.grid_size * resolution / 2
+        local_grid_msg.info.origin.position.y = -cur_grid.grid_size * resolution / 2
         local_grid_msg.info.origin.orientation.x = 0
         local_grid_msg.info.origin.orientation.y = 0
         local_grid_msg.info.origin.orientation.z = 0
         local_grid_msg.info.origin.orientation.w = 1
-        local_map = cur_grid.grid.T.ravel().astype(np.int8)
-        local_map[local_map > 2] = 100
-        local_map[local_map == 0] = -1
-        local_map[local_map == 1] = 0
+        local_map = cur_grid.layers['density_map'].T.ravel().astype(np.int8)
+        threshold = 7
+        local_map[local_map >= threshold] = 100
+        local_map[local_map < threshold] = 0
+        #local_map[local_map == 0] = -1
+        #local_map[local_map == 1] = 0
         local_grid_msg.data = list(local_map)
         self.cur_grid_publisher.publish(local_grid_msg)
 
@@ -439,8 +442,8 @@ class ResultsPublisher:
         path_marker_msg.action = Marker.ADD
         path_marker_msg.pose.orientation.w = 1.0
         path_marker_msg.type = 4
-        path_marker_msg.scale.x = 0.3
-        path_marker_msg.scale.y = 0.3
+        path_marker_msg.scale.x = self.path_marker_size
+        path_marker_msg.scale.y = self.path_marker_size
         path_marker_msg.color.a = 0.8
         path_marker_msg.color.r = 1.0
         path_marker_msg.color.g = 1.0
@@ -528,6 +531,15 @@ class PRISMTopomapNode():
         # Visualization
         visualization_config = config['visualization']
         self.results_publisher = ResultsPublisher(visualization_config['map_frame'])
+        self.results_publisher.vertex_marker_size = visualization_config['vertex_marker_size']
+        self.results_publisher.edge_marker_size = visualization_config['edge_marker_size']
+        self.results_publisher.match_marker_size = visualization_config['match_marker_size']
+        self.results_publisher.text_marker_size = visualization_config['text_marker_size']
+        self.results_publisher.vertex_orientation_marker_size = visualization_config['vertex_orientation_marker_size']
+        self.results_publisher.vcur_marker_size = visualization_config['vcur_marker_size']
+        self.results_publisher.loop_closure_marker_size = visualization_config['loop_closure_marker_size']
+        self.results_publisher.loop_closure_edge_marker_size = visualization_config['loop_closure_edge_marker_size']
+        self.results_publisher.path_marker_size = visualization_config['path_marker_size']
         self.publish_gt_map_flag = visualization_config['publish_gt_map']
         if self.publish_gt_map_flag:
             self.results_publisher.init_gt_map(self.path_to_gt_map)
@@ -584,8 +596,9 @@ class PRISMTopomapNode():
         vertex_ids_unmatched = localized_state['vertex_ids_unmatched']
         localized_time = localized_state['timestamp']
         if self.toposlam_model.found_loop_closure:
-            self.results_publisher.publish_loop_closure_results(self.toposlam_model.path, \
-                                                                self.toposlam_model.last_vertex['global_pose_for_visualization'])
+            self.results_publisher.publish_loop_closure_results(self.toposlam_model.graph, \
+                                                                self.toposlam_model.path, \
+                                                                self.toposlam_model.last_vertex['pose_for_visualization'])
         self.results_publisher.publish_localization_results(self.toposlam_model.graph, vertex_ids, rel_poses, vertex_ids_unmatched)
         self.results_publisher.unfreeze()
         timestamp = rospy.Time(localized_time)

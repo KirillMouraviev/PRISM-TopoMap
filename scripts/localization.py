@@ -24,8 +24,8 @@ class Localizer():
         self.localized_stamp = 0
         self.vertex_ids_matched = None
         self.vertex_ids_unmatched = None
-        self.rel_poses = None
         self.dists = None
+        self.rel_poses = None
         self.cnt = 0
         self.n_loc_fails = 0
         self.tests_dir = save_dir
@@ -37,7 +37,8 @@ class Localizer():
     def save_reg_test_data(self, vertex_ids, transforms, pr_scores, reg_scores, save_dir):
         if not os.path.exists(save_dir):
             os.mkdir(save_dir)
-        np.savez(os.path.join(save_dir, 'ref_grid.npz'), self.grid.grid)
+        save_dir_ref_grid = os.path.join(save_dir, 'ref_grid')
+        self.grid.save(save_dir_ref_grid)
         #print('Mean of the ref cloud:', self.localized_cloud[:, :3].mean())
         tf_data = []
         if self.global_pose_for_visualization is not None:
@@ -48,11 +49,12 @@ class Localizer():
         for idx, tf in zip(vertex_ids, transforms):
             if idx >= 0:
                 vertex_dict = self.graph.vertices[idx]
+                save_dir_cand_grid = os.path.join(save_dir, 'cand_grid_{}'.format(idx))
                 x, y, theta = vertex_dict['pose_for_visualization']
-                grid = vertex_dict['grid'].grid
+                grid = vertex_dict['grid']
+                grid.save(save_dir_cand_grid)
                 #print('Grid max:', grid.max())
                 #print('GT x, y, theta:', x, y, theta)
-                np.savez(os.path.join(save_dir, 'cand_grid_{}.npz'.format(idx)), grid)
                 if tf is not None:
                     tf_data.append([idx] + list(tf))
                 else:
@@ -126,7 +128,7 @@ class Localizer():
             pred_tf = []
             pred_i_filtered = []
             reg_scores = []
-            for idx in pred_i:
+            for i, idx in enumerate(pred_i):
                 #print('Stamp {}, vertex id {}'.format(stamp, idx))
                 if idx < 0:
                     continue
@@ -135,8 +137,8 @@ class Localizer():
                 grid_copy = start_grid.copy()
                 # grid_copy.grid[grid.grid > 2] = 0
                 # cand_grid.grid[cand_grid.grid > 2] = 0
-                cand_grid_tensor = torch.Tensor(cand_grid.grid).to(self.device)
-                ref_grid_tensor = torch.Tensor(grid_copy.grid).to(self.device)
+                cand_grid_tensor = torch.Tensor(cand_grid.layers['occupancy']).to(self.device)
+                ref_grid_tensor = torch.Tensor(grid_copy.layers['occupancy']).to(self.device)
                 # !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
                 transform, score = self.registration_pipeline.infer(ref_grid_tensor, cand_grid_tensor, verbose=False)
                 #if score_icp < 0.8:
@@ -161,7 +163,7 @@ class Localizer():
             vertex_ids_pr_unmatched = [idx for idx in pred_i if idx not in pred_i_filtered]
             #print('Matched indices:', [idx for idx in vertex_ids_pr if idx >= 0])
             #print('Unmatched indices:', vertex_ids_pr_unmatched)
-            rel_poses = [[tf[3], tf[4], tf[2]] for idx, tf in zip(pred_i_filtered, pred_tf) if idx >= 0]
+            #rel_poses = [[tf[3], tf[4], tf[2]] for idx, tf in zip(pred_i_filtered, pred_tf) if idx >= 0]
         else:
             print('Localizer not initialized!')
             vertex_ids_pr = []

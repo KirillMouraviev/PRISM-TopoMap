@@ -12,7 +12,7 @@ from scipy.spatial.transform import Rotation
 from skimage.io import imread, imsave
 from opr.pipelines.registration import PointcloudRegistrationPipeline, RansacGlobalRegistrationPipeline, Feature2DGlobalRegistrationPipeline
 from opr.datasets.augmentations import DefaultHM3DImageTransform
-from local_grid import LocalGrid
+from local_grid import load_local_grid
 from utils import get_rel_pose
 
 from memory_profiler import profile
@@ -50,9 +50,7 @@ class TopologicalGraph():
         self.adj_lists = j['edges']
         for i in range(len(self.vertices)):
             #grid = np.load(os.path.join(input_path, '{}_grid.npz'.format(i)))['arr_0']
-            grid = imread(os.path.join(input_path, '{}_grid.png'.format(i)))
-            self.vertices[i]['grid'] = LocalGrid(resolution=self.grid_resolution, radius=self.grid_radius, \
-                                                 max_range=self.max_grid_range, grid=grid)
+            self.vertices[i]['grid'] = load_local_grid(os.path.join(input_path, str(i)))
             #img_front = imread(os.path.join(input_path, '{}_img_front.png'.format(i)))
             #self.vertices[i]['img_front'] = img_front
             #img_back = imread(os.path.join(input_path, '{}_img_back.png'.format(i)))
@@ -67,7 +65,7 @@ class TopologicalGraph():
             self.adj_lists.append([])
             vertex_dict = {
                 'pose_for_visualization': [x, y, theta],
-                'grid': grid,
+                'grid': grid.copy(),
                 'descriptor': descriptor
             }
             self.vertices.append(vertex_dict)
@@ -79,8 +77,8 @@ class TopologicalGraph():
         print('Trying to match to vertex {}'.format(vertex_id))
         #return get_rel_pose(*self.global_pose_for_visualization, *self.vertices[vertex_id]['pose_for_visualization'])
         cand_grid = self.vertices[vertex_id]['grid']
-        cand_grid_tensor = torch.Tensor(cand_grid.grid).to(self.device)
-        ref_grid_tensor = torch.Tensor(grid.grid).to(self.device)
+        cand_grid_tensor = torch.Tensor(cand_grid.layers['occupancy']).to(self.device)
+        ref_grid_tensor = torch.Tensor(grid.layers['occupancy']).to(self.device)
         #print('                Ref grid:', grid.max())
         #print('                Cand grid:', cand_grid.max())
 
@@ -177,7 +175,7 @@ class TopologicalGraph():
         vertices_to_save = []
         for i in range(len(self.vertices)):
             vertex_dict = self.vertices[i]
-            imsave(os.path.join(output_path, '{}_grid.png'.format(i)), vertex_dict['grid'].grid)
+            vertex_dict['grid'].save(os.path.join(output_path, str(i)))
             x, y, theta = vertex_dict['pose_for_visualization']
             descriptor = vertex_dict['descriptor']
             vertices_to_save.append({'pose_for_visualization': (x, y, theta), 'descriptor': [float(x) for x in list(descriptor[0])]})
