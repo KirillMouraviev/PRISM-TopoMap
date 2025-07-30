@@ -1,11 +1,12 @@
 <launch>
   <arg name="path_to_gt_map" default=""/>
-  <arg name="path_to_save_json" default="/home/docker_opr/scout_rosbag"/>
+  <arg name="path_to_save_graph" default="/home/kirill/TopoSLAM/toposlam_ws/src/simple_toposlam_model/graph_jsons_new/scout_rosbag"/>
+  <arg name="path_to_save_logs" default="/home/kirill/TopoSLAM/toposlam_ws/data/prism_topomap_logs"/>
   <arg name="config_file" default="scout_rosbag.yaml"/>
 
   <node pkg="prism_topomap" type="prism_topomap_node.py" name="prism_topomap_node" output="screen">
     <param name="path_to_gt_map" value="$(arg path_to_gt_map)"/>
-    <param name="path_to_save_json" value="$(arg path_to_save_json)"/>
+    <param name="path_to_save_graph" value="$(arg path_to_save_graph)"/>
     <param name="config_file" value="$(arg config_file)"/>
   </node>
 

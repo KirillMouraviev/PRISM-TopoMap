@@ -24,7 +24,7 @@ class OdometryPublisher:
                 transform_stamped = self.tf_buffer.lookup_transform(self.source_frame, self.target_frame, rospy.Time(0))
                                                             #self.tf_listener.getLatestCommonTime(self.source_frame, self.target_frame))
             except (tf2_ros.LookupException, tf2_ros.ConnectivityException, tf2_ros.ExtrapolationException):
-                #print('Could not get transform from {} to {}'.format(self.source_frame, self.target_frame))
+                print('Could not get transform from {} to {}'.format(self.source_frame, self.target_frame))
                 continue
             odom_msg.header.stamp = rospy.Time.now()
             odom_msg.pose.pose.position.x = transform_stamped.transform.translation.x

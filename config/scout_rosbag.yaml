@@ -1,6 +1,7 @@
 input:
   pointcloud:
     topic: /rslidar_points
+    subscribe_to_curbs: false
     fields: xyz
     rotation_matrix: [[ 1., 0., 0.],
                       [ 0., 1., 0.],
@@ -10,26 +11,26 @@ input:
   odometry:
     topic: /odom
     type: Odometry
+  subscribe_to_gt_pose: true
   gt_pose:
     topic: /odom_gt
     type: Odometry
-  image_front:
-    topic: /camera/color/image_raw
-    color: rgb
-  image_back:
-    topic: /camera/color/image_raw
-    color: rgb
+  subscribe_to_images: false
 topomap:
+  mode: mapping
   iou_threshold: 0.3
   max_edge_length: 5.0
   localization_frequency: 2.0
+  localization_timeout: 0.0
   rel_pose_correction_frequency: 0.5
+  drift_coef: 0.3
 place_recognition:
   model: minkloc3d
   #weights_path: /home/kirill/TopoSLAM/OpenPlaceRecognition/weights/place_recognition/habitat_multimodal_resnet18-gem-seqgem_minkloc3dv2.pth
   weights_path: /home/docker_opr/OpenPlaceRecognition/weights/place_recognition/minkloc3d_nclt.pth
   model_config_path: /home/docker_opr/OpenPlaceRecognition/configs/model/place_recognition/resnet18-seqgem_minkloc3dv2.yaml
   top_k: 5
+  pointcloud_quantization_size: 0.2
 local_occupancy_grid:
   resolution: 0.1
   radius: 18.0
@@ -51,7 +52,17 @@ scan_matching_along_edge:
   outlier_thresholds: [5, 2, 1, 0.5, 0.5]
   voxel_downsample_size: 0.1
   min_matches: 5
+  jump_threshold: 1.0
 visualization:
   publish_gt_map: false
   map_frame: map
   publish_tf_from_odom: true
+  vertex_marker_size: 0.3
+  edge_marker_size: 0.1
+  text_marker_size: 0.3
+  match_marker_size: 0.5
+  vcur_marker_size: 0.7
+  loop_closure_marker_size: 0.5
+  loop_closure_edge_marker_size: 0.3
+  path_marker_size: 0.3
+  vertex_orientation_marker_size: 0.05

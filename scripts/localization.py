@@ -1,63 +1,60 @@
-import rospy
 import os
 import numpy as np
-np.float = np.float64
-import ros_numpy
-from sensor_msgs.msg import PointCloud2, Image
-from std_msgs.msg import Float32MultiArray, MultiArrayDimension, Bool
-from visualization_msgs.msg import Marker
-from geometry_msgs.msg import Point
-from cv_bridge import CvBridge
+import torch
 import time
 from utils import apply_pose_shift
+from copy import deepcopy
+from threading import Lock
+from scipy.spatial.transform import Rotation
 
 class Localizer():
-    def __init__(self, graph, gt_map, map_frame='map', publish=True, top_k=5):
+    def __init__(self, graph, registration_model,
+                 registration_score_threshold=0.6, top_k=5, save_dir=None):
         self.graph = graph
-        self.gt_map = gt_map
+        self.registration_pipeline = registration_model
+        self.registration_score_threshold = registration_score_threshold
         self.top_k = top_k
-        self.img_front = None
-        self.img_back = None
-        self.cloud = None
+        self.descriptor = None
+        self.grid = None
         self.global_pose_for_visualization = None
         self.stamp = None
         self.localized_x = None
         self.localized_y = None
         self.localized_theta = None
-        self.localized_stamp = None
-        self.localized_img_front = None
-        self.localized_img_back = None
-        self.localized_cloud = None
-        self.rel_poses = None
+        self.localized_stamp = 0
+        self.vertex_ids_matched = None
+        self.vertex_ids_unmatched = None
         self.dists = None
+        self.rel_poses = None
         self.cnt = 0
         self.n_loc_fails = 0
-        self.publish = publish
-        self.map_frame = map_frame
-        self.result_publisher = rospy.Publisher('/localized_nodes', Float32MultiArray, latch=True, queue_size=100)
-        self.cand_cloud_publisher = rospy.Publisher('/candidate_cloud', PointCloud2, latch=True, queue_size=100)
-        self.matched_points_publisher = rospy.Publisher('/matched_points', Marker, latch=True, queue_size=100)
-        self.unmatched_points_publisher = rospy.Publisher('/unmatched_points', Marker, latch=True, queue_size=100)
-        self.transforms_publisher = rospy.Publisher('/localization_transforms', Marker, latch=True, queue_size=100)
-        self.first_pr_publisher = rospy.Publisher('/first_point', Marker, latch=True, queue_size=100)
-        self.first_pr_image_publisher = rospy.Publisher('/place_recognition/image', Image, latch=True, queue_size=100)
-        self.freeze_publisher = rospy.Publisher('/freeze', Bool, latch=True, queue_size=100)
-        self.bridge = CvBridge()
+        self.tests_dir = save_dir
+        if self.tests_dir is not None and not os.path.exists(self.tests_dir):
+            os.mkdir(self.tests_dir)
+        self.mutex = Lock()
+        self.device = torch.device('cuda:0')
 
     def save_reg_test_data(self, vertex_ids, transforms, pr_scores, reg_scores, save_dir):
         if not os.path.exists(save_dir):
             os.mkdir(save_dir)
-        np.savez(os.path.join(save_dir, 'ref_cloud.npz'), self.localized_cloud)
+        save_dir_ref_grid = os.path.join(save_dir, 'ref_grid')
+        self.grid.save(save_dir_ref_grid)
         #print('Mean of the ref cloud:', self.localized_cloud[:, :3].mean())
         tf_data = []
-        gt_pose_data = [[self.localized_x, self.localized_y, self.localized_theta]]
+        if self.global_pose_for_visualization is not None:
+            gt_pose_data = [list(self.global_pose_for_visualization)]
+        else:
+            print('No global pose for visualization to save reg test data!')
+            return
         for idx, tf in zip(vertex_ids, transforms):
             if idx >= 0:
                 vertex_dict = self.graph.vertices[idx]
+                save_dir_cand_grid = os.path.join(save_dir, 'cand_grid_{}'.format(idx))
                 x, y, theta = vertex_dict['pose_for_visualization']
-                grid = vertex_dict['grid'].grid
+                grid = vertex_dict['grid']
+                grid.save(save_dir_cand_grid)
+                #print('Grid max:', grid.max())
                 #print('GT x, y, theta:', x, y, theta)
-                np.savetxt(os.path.join(save_dir, 'cand_grid_{}.txt'.format(idx)), grid)
                 if tf is not None:
                     tf_data.append([idx] + list(tf))
                 else:
@@ -69,167 +66,118 @@ class Localizer():
         np.savetxt(os.path.join(save_dir, 'pr_scores.txt'), np.array(pr_scores))
         np.savetxt(os.path.join(save_dir, 'reg_scores.txt'), np.array(reg_scores))
 
-    def publish_localization_results(self, vertex_id_first, vertex_ids_matched, vertex_ids_unmatched, rel_poses):
-        if vertex_id_first < 0:
-            return
-        # Publish top-1 PlaceRecognition vertex
-        vertices_marker = Marker()
-        #vertices_marker = ns = 'points_and_lines'
-        vertices_marker.type = Marker.POINTS
-        vertices_marker.id = 0
-        vertices_marker.header.frame_id = self.map_frame
-        vertices_marker.header.stamp = rospy.Time.now()
-        vertices_marker.scale.x = 0.4
-        vertices_marker.scale.y = 0.4
-        vertices_marker.scale.z = 0.4
-        if vertex_id_first in vertex_ids_matched:
-            vertices_marker.color.r = 0
-        else:
-            vertices_marker.color.r = 1
-        vertices_marker.color.g = 1
-        vertices_marker.color.b = 0
-        vertices_marker.color.a = 1
-        x, y, _ = self.graph.vertices[vertex_id_first]['pose_for_visualization']
-        img_front = self.graph.vertices[vertex_id_first]['img_front']
-        vertices_marker.points.append(Point(x, y, 0.1))
-        self.first_pr_publisher.publish(vertices_marker)
+    def update_current_state(self, global_pose_for_visualization, cur_desc, cur_grid, timestamp):
+        self.mutex.acquire()
+        self.global_pose_for_visualization = global_pose_for_visualization
+        self.descriptor = cur_desc
+        self.grid = cur_grid
+        self.stamp = timestamp
+        self.mutex.release()
 
-        # Publish top-1 PlaceRecognition image
-        try:
-            img_msg = self.bridge.cv2_to_imgmsg(img_front)
-            img_msg.encoding = 'rgb8'
-            img_msg.header.stamp = rospy.Time.now()
-            self.first_pr_image_publisher.publish(img_msg)
-        except:
-            pass
+    def write_localized_state(self, vertex_ids_matched, rel_poses, vertex_ids_pr_unmatched, start_global_pose, start_stamp):
+        self.mutex.acquire()
+        if start_global_pose is not None:
+            self.localized_x, self.localized_y, self.localized_theta = start_global_pose
+        self.localized_stamp = start_stamp
+        self.vertex_ids_matched = vertex_ids_matched
+        self.rel_poses = rel_poses
+        self.vertex_ids_unmatched = vertex_ids_pr_unmatched
+        self.mutex.release()
 
-        # Publish matched vertices
-        vertices_marker = Marker()
-        #vertices_marker = ns = 'points_and_lines'
-        vertices_marker.type = Marker.POINTS
-        vertices_marker.id = 0
-        vertices_marker.header.frame_id = self.map_frame
-        vertices_marker.header.stamp = rospy.Time.now()
-        vertices_marker.scale.x = 0.2
-        vertices_marker.scale.y = 0.2
-        vertices_marker.scale.z = 0.2
-        vertices_marker.color.r = 0
-        vertices_marker.color.g = 1
-        vertices_marker.color.b = 0
-        vertices_marker.color.a = 1
-        localized_vertices = [self.graph.vertices[i] for i in vertex_ids_matched]
-        for vertex_dict in localized_vertices:
-            x, y, _ = vertex_dict['pose_for_visualization']
-            vertices_marker.points.append(Point(x, y, 0.1))
-        self.matched_points_publisher.publish(vertices_marker)
+    def get_current_state(self):
+        self.mutex.acquire()
+        result = {
+            'global_pose_for_visualization': self.global_pose_for_visualization, 
+            'descriptor': self.descriptor.copy(), 
+            'grid': self.grid.copy(), 
+            'timestamp': self.stamp
+            }
+        self.mutex.release()
+        return result
 
-        transforms_marker = Marker()
-        transforms_marker.type = Marker.LINE_LIST
-        transforms_marker.header.frame_id = self.map_frame
-        transforms_marker.header.stamp = rospy.Time.now()
-        transforms_marker.scale.x = 0.1
-        transforms_marker.color.r = 1
-        transforms_marker.color.g = 0
-        transforms_marker.color.b = 0
-        transforms_marker.color.a = 0.5
-        transforms_marker.pose.orientation.w = 1
-        for vertex_dict, rel_pose in zip(localized_vertices, rel_poses):
-            x, y, theta = vertex_dict['pose_for_visualization']
-            transforms_marker.points.append(Point(x, y, 0.1))
-            x, y, theta = apply_pose_shift([x, y, theta], *rel_pose)
-            transforms_marker.points.append(Point(x, y, 0.1))
-        self.transforms_publisher.publish(transforms_marker)
+    def get_localized_state(self):
+        self.mutex.acquire()
+        result = {
+            'vertex_ids_matched': deepcopy(self.vertex_ids_matched), 
+            'rel_poses': deepcopy(self.rel_poses),
+            'vertex_ids_unmatched': deepcopy(self.vertex_ids_unmatched),
+            'global_pose_for_visualization': (self.localized_x, self.localized_y, self.localized_theta),
+            'timestamp': self.localized_stamp}
+        self.mutex.release()
+        return result
 
-        # Publish unmatched vertices
-        vertices_marker.id = 0
-        vertices_marker.header.frame_id = self.map_frame
-        vertices_marker.header.stamp = rospy.Time.now()
-        vertices_marker.scale.x = 0.2
-        vertices_marker.scale.y = 0.2
-        vertices_marker.scale.z = 0.2
-        vertices_marker.color.r = 1
-        vertices_marker.color.g = 1
-        vertices_marker.color.b = 0
-        vertices_marker.color.a = 1
-        localized_vertices = [self.graph.vertices[i] for i in vertex_ids_unmatched]
-        for vertex_dict in localized_vertices:
-            x, y, _ = vertex_dict['pose_for_visualization']
-            vertices_marker.points.append(Point(x, y, 0.1))
-        self.unmatched_points_publisher.publish(vertices_marker)
-
-    def publish_result(self, vertex_ids, rel_poses):
-        if rel_poses.size == 0:
-            return
-        dists = np.sqrt(rel_poses[:, 0] ** 2 + rel_poses[:, 1] ** 2)
-        ids = [i for i in range(len(vertex_ids))]
-        ids.sort(key=lambda i: dists[i])
-        vertex_ids = [vertex_ids[i] for i in ids]
-        rel_poses = [rel_poses[i] for i in ids]
-        result_msg = Float32MultiArray()
-        result_msg.layout.dim.append(MultiArrayDimension())
-        result_msg.layout.data_offset = 0
-        n = len(vertex_ids)
-        result_msg.layout.dim[0].size = n * 4
-        result_msg.layout.dim[0].stride = n * 4
-        for i in range(n):
-            result_msg.data.append(vertex_ids[i])
-        for i in range(n):
-            result_msg.data.append(rel_poses[i][0])
-        for i in range(n):
-            result_msg.data.append(rel_poses[i][1])
-        for i in range(n):
-            result_msg.data.append(rel_poses[i][2])
-        self.result_publisher.publish(result_msg)
-
-    def localize(self, event=None):
-        if self.global_pose_for_visualization is None:
-            print('No global pose provided!')
-            return
-        dt = (rospy.Time.now() - self.stamp).to_sec()
-        #print('Localization lag:', dt)
+    def localize(self):
+        if self.stamp is None:
+            print('Waiting for message to initialize localizer...')
+            return None, None, None
+        print('Localize from stamp', self.stamp)
         vertex_ids = []
         rel_poses = []
-        freeze_msg = Bool()
-        freeze_msg.data = True
-        self.freeze_publisher.publish(freeze_msg)
-        t1 = time.time()
-        start_global_pose = self.global_pose_for_visualization
-        start_stamp = self.stamp
-        start_img_front = self.img_front
-        start_img_back = self.img_back
-        start_cloud = self.cloud
+        current_state = self.get_current_state()
+        start_global_pose = current_state['global_pose_for_visualization']
+        start_stamp = current_state['timestamp']
+        start_grid = current_state['grid']
+        start_desc = current_state['descriptor']
         #print('Position at start:', self.global_pose_for_visualization)
-        self.graph.global_pose_for_visualization = self.global_pose_for_visualization
-        if self.cloud is not None:
-            vertex_ids_pr_raw, vertex_ids_pr, transforms, pr_scores, reg_scores = self.graph.get_k_most_similar(self.img_front, 
-                                                                                                                self.img_back, 
-                                                                                                                self.cloud, 
-                                                                                                                self.stamp,
-                                                                                                                k=self.top_k)
-            t2 = time.time()
-            t3 = time.time()
-            #print('Saving time:', t3 - t2)
-            vertex_ids_pr_unmatched = [idx for idx in vertex_ids_pr_raw if idx not in vertex_ids_pr]
+        if start_grid is not None:
+            dists, pred_i = self.graph.index.search(start_desc, self.top_k)
+            #print('Place recognition time:', t4 - t3)
+            pr_scores = dists[0]
+            pred_i = pred_i[0]
+            # print('Pred i:', pred_i)
+            pred_tf = []
+            pred_i_filtered = []
+            reg_scores = []
+            for i, idx in enumerate(pred_i):
+                #print('Stamp {}, vertex id {}'.format(stamp, idx))
+                if idx < 0:
+                    continue
+                cand_vertex_dict = self.graph.get_vertex(idx)
+                cand_grid = cand_vertex_dict['grid'].copy()
+                grid_copy = start_grid.copy()
+                # grid_copy.grid[grid.grid > 2] = 0
+                # cand_grid.grid[cand_grid.grid > 2] = 0
+                cand_grid_tensor = torch.Tensor(cand_grid.layers['occupancy']).to(self.device)
+                ref_grid_tensor = torch.Tensor(grid_copy.layers['occupancy']).to(self.device)
+                # !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+                transform, score = self.registration_pipeline.infer(ref_grid_tensor, cand_grid_tensor, verbose=False)
+                #if score_icp < 0.8:
+                reg_scores.append(score)
+                print('Registration score of vertex {} is {}'.format(idx, score))
+                if score < self.registration_score_threshold:
+                    pred_i_filtered.append(-1)
+                    pred_tf.append([0, 0, 0, 0, 0, 0])
+                else:
+                # !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+                    tf_matrix = cand_grid.get_tf_matrix_xy(*transform)
+                    pred_i_filtered.append(idx)
+                    tf_rotation = Rotation.from_matrix(tf_matrix[:3, :3]).as_rotvec()
+                    tf_translation = tf_matrix[:3, 3]
+                    pred_tf.append(list(tf_rotation) + list(tf_translation))
+            if self.tests_dir is not None:
+                save_dir = os.path.join(self.tests_dir, 'test_{}'.format(self.cnt))
+                self.cnt += 1
+                if not os.path.exists(save_dir):
+                    os.mkdir(save_dir)
+                self.save_reg_test_data(pred_i, pred_tf, pr_scores, reg_scores, save_dir)
+            vertex_ids_pr_unmatched = [idx for idx in pred_i if idx not in pred_i_filtered]
             #print('Matched indices:', [idx for idx in vertex_ids_pr if idx >= 0])
             #print('Unmatched indices:', vertex_ids_pr_unmatched)
-            rel_poses = [[tf[3], tf[4], tf[2]] for idx, tf in zip(vertex_ids_pr, transforms) if idx >= 0]
-            self.publish_localization_results(vertex_ids_pr_raw[0], [idx for idx in vertex_ids_pr if idx >= 0], vertex_ids_pr_unmatched, rel_poses)
-            t4 = time.time()
-            #print('Publish time:', t4 - t3)
+            #rel_poses = [[tf[3], tf[4], tf[2]] for idx, tf in zip(pred_i_filtered, pred_tf) if idx >= 0]
         else:
+            print('Localizer not initialized!')
             vertex_ids_pr = []
-        t4 = time.time()
-        pr_scores = [pr_scores[i] for i, idx in enumerate(vertex_ids_pr) if idx >= 0]
-        reg_scores = [reg_scores[i] for i, idx in enumerate(vertex_ids_pr) if idx >= 0]
-        transforms = [transforms[i] for i, idx in enumerate(vertex_ids_pr) if idx >= 0]
+        pr_scores = [pr_scores[i] for i, idx in enumerate(pred_i_filtered) if idx >= 0]
+        reg_scores = [reg_scores[i] for i, idx in enumerate(pred_i_filtered) if idx >= 0]
+        transforms = [pred_tf[i] for i, idx in enumerate(pred_i_filtered) if idx >= 0]
         transforms = np.array(transforms)
-        vertex_ids_pr = [i for i in vertex_ids_pr if i >= 0]
-        if len(vertex_ids_pr) == 0:
+        vertex_ids_pr = [i for i in pred_i_filtered if i >= 0]
+        vertex_ids_pr_unmatched = [idx for idx in pred_i if idx not in pred_i_filtered and idx >= 0]
+        if len(pred_i_filtered) == 0:
             self.n_loc_fails += 1
         #for i, v in enumerate(self.graph.vertices):
         for i, idx in enumerate(vertex_ids_pr):
             v = self.graph.vertices[idx]
-            #if self.gt_map.in_sight(x, y, v[0], v[1]):
             vertex_ids.append(idx)
             #print('Transform:', transforms[i])
             rel_poses.append(transforms[i, [3, 4, 2]])
@@ -237,18 +185,4 @@ class Localizer():
             #print('Descriptor dist:', pr_scores[i])
             #print('Reg score:', reg_scores[i])
         rel_poses = np.array(rel_poses)
-        freeze_msg = Bool()
-        freeze_msg.data = False
-        self.freeze_publisher.publish(freeze_msg)
-        t5 = time.time()
-        #print('Cloud publish time:', t5 - t4)
-        #print('Localization time:', t5 - t1)
-        if len(vertex_ids) > 0:
-            self.localized_x, self.localized_y, self.localized_theta = start_global_pose
-            self.localized_stamp = start_stamp
-            self.localized_img_front = start_img_front
-            self.localized_img_back = start_img_back
-            self.localized_cloud = start_cloud
-        if self.publish:
-            self.publish_result(vertex_ids, rel_poses)
-        return vertex_ids, rel_poses
+        self.write_localized_state(vertex_ids, rel_poses, vertex_ids_pr_unmatched, start_global_pose, start_stamp)

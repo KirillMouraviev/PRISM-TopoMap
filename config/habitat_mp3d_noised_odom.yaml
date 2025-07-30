@@ -1,16 +1,20 @@
 input:
   pointcloud:
     topic: /habitat/points
+    subscribe_to_curbs: false
     fields: xyzrgb
     #rotation_matrix: [[0, -1, 0], [0, 0, -1], [1, 0, 0]]
     rotation_matrix: [[1, 0, 0], [0, 1, 0], [0, 0, 1]]
     floor_height: -0.9
     ceiling_height: 1.5
+  subscribe_to_gt_pose: true
+  subscribe_to_images: true
   gt_pose:
-    topic: /true_pose
-    type: PoseStamped
+    topic: /odom_gt
+    type: Odometry
   odometry:
     topic: /odom_noised
+    type: Odometry
   image_front:
     topic: /habitat/rgb1/image
     color: rgb
@@ -18,16 +22,20 @@ input:
     topic: /habitat/rgb3/image
     color: rgb
 topomap:
+  mode: mapping
   iou_threshold: 0.3
   max_edge_length: 5.0
   localization_frequency: 3.0
+  localization_timeout: 0.0
   rel_pose_correction_frequency: 1.0
+  drift_coef: 0.2
 place_recognition:
   model: minkloc3d
   #weights_path: /home/kirill/TopoSLAM/OpenPlaceRecognition/weights/place_recognition/habitat_multimodal_resnet18-gem-seqgem_minkloc3dv2.pth
   weights_path: /home/kirill/TopoSLAM/OpenPlaceRecognition/weights/place_recognition/minkloc3d_nclt.pth
   model_config_path: /home/kirill/TopoSLAM/OpenPlaceRecognition/configs/model/place_recognition/resnet18-seqgem_minkloc3dv2.yaml
   top_k: 5
+  pointcloud_quantization_size: 0.2
 local_occupancy_grid:
   resolution: 0.1
   radius: 18.0
@@ -49,10 +57,18 @@ scan_matching_along_edge:
   max_point_cloud_range: 8.0
   voxel_downsample_size: 0.1
   min_matches: 5
+  jump_threshold: 1.0
   #save_dir: /home/kirill/TopoSLAM/OpenPlaceRecognition/test_inline_registration
 visualization:
   publish_gt_map: true
   map_frame: map
   publish_tf_from_odom: false
-logs:
-  path_to_save: /home/kirill/TopoSLAM/toposlam_ws/src/prism-topomap/logs/test_habitat_minkloc3d_1
+  vertex_marker_size: 0.3
+  edge_marker_size: 0.1
+  text_marker_size: 0.3
+  match_marker_size: 0.5
+  vcur_marker_size: 0.7
+  loop_closure_marker_size: 0.5
+  loop_closure_edge_marker_size: 0.3
+  path_marker_size: 0.3
+  vertex_orientation_marker_size: 0.05
