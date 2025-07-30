@@ -3,16 +3,19 @@ The PRISM-TopoMap - online topological mapping method with place recognition and
 
 ## Paper
 
-The PRISM-TopoMap method is described in the [paper](https://arxiv.org/abs/2404.01674). If you use this code in your research, please cite this paper. A bibtex entry is provided below.
+The PRISM-TopoMap method is described in the [paper](https://arxiv.org/abs/2404.01674) accepted to IEEE Robotics and Automation Letters in 2025. If you use this code in your research, please cite this paper. A bibtex entry is provided below.
 
 ```
-@article{muravyev2024prism,
-  title={PRISM-TopoMap: Online Topological Mapping with Place Recognition and Scan Matching},
-  author={Muravyev, Kirill and Melekhin, Alexander and Yudin, Dmitriy and Yakovlev, Konstantin},
-  journal={arXiv preprint arXiv:2404.01674},
-  year={2024}
+@article{muravyev2025prism,
+  title={PRISM-TopoMap: online topological mapping with place recognition and scan matching},
+  author={Muravyev, Kirill and Melekhin, Alexander and Yudin, Dmitry and Yakovlev, Konstantin},
+  journal={IEEE Robotics and Automation Letters},
+  year={2025},
+  publisher={IEEE}
 }
 ```
+
+Comparison of Place Recognition methods is in the [PR_ablation.md](PR_ablation.md).
 
 ## Prerequisites:
 - [OpenPlaceRecognition](https://github.com/alexmelekhin/openplacerecognition)
@@ -23,6 +26,7 @@ The PRISM-TopoMap method is described in the [paper](https://arxiv.org/abs/2404.
 After installing ROS and OpenPlaceRecognition, build PRISM-TopoMap as ROS package:
 ```
 cd your_ros_workspace/src
+git clone https://github.com/KirillMouraviev/toposlam_msgs
 git clone https://github.com/KirillMouraviev/PRISM-TopoMap
 cd ../..
 catkin_make
