@@ -1,5 +1,7 @@
 # PRISM-TopoMap
-The PRISM-TopoMap - online topological mapping method with place recognition and scan matching.
+The PRISM-TopoMap - online topological mapping method with place recognition and scan matching. It is able to build a lightweight topological maps (graph of locations) of large indoor or outdoor environments and localize in the built map without error accumulation.
+
+<video src='img/media7.mp4' width=180/>
 
 ## Paper
 
@@ -20,7 +22,7 @@ Comparison of Place Recognition methods is in the [PR_ablation.md](PR_ablation.m
 ## Prerequisites:
 - [OpenPlaceRecognition](https://github.com/alexmelekhin/openplacerecognition)
 - [ROS](https://ros.org) Melodic or Noetic
-- For simulated demo: [habitat-sim v0.1.7](https://github.com/facebookresearch/habitat-sim/tree/v0.1.7), [habitat-lab v0.1.7](https://github.com/facebookresearch/habitat-lab/tree/v0.1.7), and [ROS tools for Habitat](https://github.com/cnndepth/habitat_ros)
+- For simulated demo: [habitat-sim v0.1.7](https://github.com/facebookresearch/habitat-sim/tree/v0.1.7), [habitat-lab v0.1.7](https://github.com/facebookresearch/habitat-lab/tree/v0.1.7), and [ROS tools for Habitat](https://github.com/CnnDepth/habitat_ros/tree/toposlam_experiments)
 
 ## Installation
 After installing ROS and OpenPlaceRecognition, build PRISM-TopoMap as ROS package:
@@ -32,10 +34,15 @@ cd ../..
 catkin_make
 ```
 
-After that, download the actual [weights](https://drive.google.com/file/d/1r4Nw0YqHC9PKiZXDmUAWZkOTvgporPnS/view?usp=sharing) for the place recognition model] and set correct path to the weights in the config files `habitat_mp3d.yaml` and `husky_rosbag.yaml`.
+After that, download the actual weights: [multimodal](https://drive.google.com/file/d/1r4Nw0YqHC9PKiZXDmUAWZkOTvgporPnS/view?usp=sharing) or [point cloud only](https://drive.google.com/file/d/19uPohPxQUa71jQzApjGPVbSyJeVdggwF/view?usp=drive_link) for the place recognition model and set correct path to the weights in the config files `habitat_mp3d.yaml` and `scout_rosbag.yaml`.
+
+## Overview
+
+PRISM-TopoMap can work as a SLAM method or in localizaton only mode. In both modes, 
 
 ## Launch
-We provide two examples of launch scripts: for Habitat simulator and for rosbag from Husky robot.
+We provide two examples of launch scripts for mapping: for Habitat simulator and for rosbag from AgileX Scout Mini robot.
+Moreover, we provide an example 
 
 ### Habitat simulation
 
@@ -48,7 +55,7 @@ Terminal 2
 ```
 sudo -s
 <source ROS and Habitat ros workspace>
-roslaunch habitat_ros toposlam_experiment_mp3d_4x90.launch
+roslaunch habitat_ros toposlam_experiment_mp3d_4x90_large_noise.launch
 ```
 
 Terminal 3
