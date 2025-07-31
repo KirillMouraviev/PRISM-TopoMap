@@ -245,6 +245,7 @@ class TopoSLAMModel():
                     # print('v:', vx, vy)
                     # print('Path in graph:', path_len)
                     # print('Path through cur:', dst_through_cur)
+                    print('Loop: connect {} and {} through current position'.format(u, v))
                     self.found_loop_closure = True
                     self.path = path
                     break
@@ -284,7 +285,7 @@ class TopoSLAMModel():
         pose_diffs = []
         edge_poses = []
         neighbours = []
-        print('Vcur:', self.last_vertex_id)
+        # print('Vcur:', self.last_vertex_id)
         for vertex_id, pose_to_vertex in self.graph.adj_lists[self.last_vertex_id]:
             edge_poses.append(pose_to_vertex)
             pose_diff = np.sqrt((pose_to_vertex[0] - self.rel_pose_of_vcur[0]) ** 2 + (pose_to_vertex[1] - self.rel_pose_of_vcur[1]) ** 2)
@@ -402,7 +403,10 @@ class TopoSLAMModel():
         self.rel_pose_of_vcur = new_rel_pose_of_vcur
         if self.rel_pose_vcur_to_loc is not None:
             self.rel_pose_vcur_to_loc = get_rel_pose(*pose_stamped, *self.rel_pose_vcur_to_loc)
+        # print('Vertex ids: {}, rel poses: {}'.format(vertex_ids, rel_poses))
         for v, rel_pose in zip(vertex_ids, rel_poses):
+            # print('Rel pose vcur to loc:', self.rel_pose_vcur_to_loc)
+            # print('Rel pose:', rel_pose)
             if self.rel_pose_vcur_to_loc is not None and rel_pose is not None:
                 pred_rel_pose = apply_pose_shift(self.rel_pose_vcur_to_loc, *self.graph.inverse_transform(*rel_pose))
                 #if np.sqrt(pred_rel_pose[0] ** 2 + pred_rel_pose[1] ** 2) < 5:
@@ -487,13 +491,13 @@ class TopoSLAMModel():
         self.cur_grid.update_from_cloud_and_transform(cur_cloud, x, y, -theta)
         if cur_curbs is not None:
             self.cur_grid.update_curbs_from_cloud(cur_curbs)
-        else:
-            print('NO CURBS!')
+        # else:
+        #     print('NO CURBS!')
 
     def update_rel_pose_of_vcur_by_odom(self, cur_odom_pose):
         x, y, theta = cur_odom_pose
-        print('Odom pose:', self.odom_pose)
-        print('Cur odom pose:', cur_odom_pose)
+        # print('Odom pose:', self.odom_pose)
+        # print('Cur odom pose:', cur_odom_pose)
         if self.odom_pose is not None:
             rel_x, rel_y, rel_theta = get_rel_pose(*self.odom_pose, x, y, theta)
         else:
@@ -525,17 +529,23 @@ class TopoSLAMModel():
             self.localization_time = self.localization_results['timestamp']
         localized_stamp = self.localization_results['timestamp']
         localization_is_fresh = (len(self.rel_poses_stamped) == 0 or localized_stamp is None or localized_stamp >= self.rel_poses_stamped[0][0] - 1e-3)
-        print('\n\n\n Localized in vertices: {}. Actual: {} \n\n\n'.format(self.localization_results['vertex_ids_matched'], 
+        print('Localized in vertices: {}. Actual: {}'.format(self.localization_results['vertex_ids_matched'], 
                                                                           localization_is_fresh))
+        if localization_is_fresh:
+            self.rel_pose_vcur_to_loc = self.get_rel_pose_from_stamp(localized_stamp)[0]
+        # print('Rel pose vcur to loc:', self.rel_pose_vcur_to_loc)
         # print('Rel poses:', self.localization_results['rel_poses'])
 
-        if len(self.rel_poses_stamped) == 0 or localized_stamp is None or localized_stamp >= self.rel_poses_stamped[0][0] - 1e-3:
-            vertex_ids = self.localization_results['vertex_ids_matched']
-            rel_poses = self.localization_results['rel_poses']
+        if localization_is_fresh:
+            vertex_ids = list(self.localization_results['vertex_ids_matched'])
+            rel_poses = list(self.localization_results['rel_poses'])
             if vertex_ids is not None and rel_poses is not None:
+                if self.last_vertex_id not in vertex_ids:
+                    vertex_ids.append(self.last_vertex_id)
+                    rel_poses.append(self.graph.inverse_transform(*self.rel_pose_vcur_to_loc))
                 dists = [np.sqrt(x ** 2 + y ** 2) for x, y, theta in rel_poses]
                 if self.find_loop_closure(vertex_ids, dists):
-                    print('Found loop closure. Add new vertex to close loop')
+                    print('\n\n\nFound loop closure. Add new vertex to close loop\n\n\n')
                     self.add_new_vertex(vertex_ids, rel_poses)
                     return
         else:

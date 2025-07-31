@@ -743,8 +743,8 @@ class PRISMTopomapNode():
             if rospy.Time.now().to_sec() - start_time > 0.5:
                 print('Waiting for sync pose and images timed out!')
                 return
-        if cur_curbs is None:
-            print('Cur curbs is None!')
+        # if cur_curbs is None:
+        #     print('Cur curbs is None!')
         self.cur_global_pose = cur_global_pose
         if self.cur_global_pose is None:
             print('No global pose!')
@@ -757,7 +757,7 @@ class PRISMTopomapNode():
 
         start_time = time.time()
         self.cur_cloud = get_xyz_coords_from_msg(msg, self.pcd_fields, self.pcd_rotation)
-        print('Time for get xyz coords or lidar cloud:', time.time() - start_time)
+        # print('Time for get xyz coords or lidar cloud:', time.time() - start_time)
         start_time = time.time()
         self.toposlam_model.update(cur_global_pose, cur_odom_pose, cur_img_front, cur_img_back, self.cur_cloud, cur_curbs)
 
