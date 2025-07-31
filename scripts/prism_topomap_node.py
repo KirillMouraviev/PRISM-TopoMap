@@ -238,7 +238,7 @@ class ResultsPublisher:
         for vertex_dict in graph.vertices:
             x, y, theta = vertex_dict['pose_for_visualization']
             vertex_orientation_marker.points.append(Point(x, y, 0.1))
-            vertex_orientation_marker.points.append(Point(x + np.cos(theta) * 0.5, y + np.sin(theta) * 0.5, 0.05))
+            vertex_orientation_marker.points.append(Point(x + np.cos(theta) * 1, y + np.sin(theta) * 1, 0.05))
         # graph_msg.markers.append(vertex_orientation_marker)
 
         cnt = 3

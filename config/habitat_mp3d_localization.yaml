@@ -45,14 +45,12 @@ scan_matching:
   detector_type: ORB
   score_threshold: 0.4
   outlier_thresholds: [5, 2, 1, 0.5, 0.5]
-  voxel_downsample_size: 0.1
   min_matches: 5
 scan_matching_along_edge:
   model: feature2d
   detector_type: HarrisWithDistance
   score_threshold: 0.4
   outlier_thresholds: [5, 2, 1, 0.5, 0.5]
-  voxel_downsample_size: 0.1
   min_matches: 5
   jump_threshold: 0.5
 visualization:

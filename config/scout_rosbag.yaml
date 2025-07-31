@@ -41,7 +41,6 @@ scan_matching:
   score_threshold: 0.6
   #outlier_thresholds: [2.5, 1, 0.5, 0.25, 0.25]
   outlier_thresholds: [5, 2, 1, 0.5, 0.5]
-  voxel_downsample_size: 0.1
   min_matches: 5
 scan_matching_along_edge:
   save_dir: /home/kirill/test_inline_registration
@@ -50,7 +49,6 @@ scan_matching_along_edge:
   score_threshold: 0.5
   #outlier_thresholds: [2.5, 1, 0.5, 0.25, 0.25]
   outlier_thresholds: [5, 2, 1, 0.5, 0.5]
-  voxel_downsample_size: 0.1
   min_matches: 5
   jump_threshold: 1.0
 visualization:
