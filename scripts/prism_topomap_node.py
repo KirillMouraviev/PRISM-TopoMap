@@ -1,10 +1,9 @@
 #!/usr/bin/env python
 
-import rospy
-import rospkg
+import rclpy
 import numpy as np
 np.float = np.float64
-import ros_numpy
+import ros2_numpy
 import os
 import cv2
 import sys
@@ -19,41 +18,50 @@ from sensor_msgs.msg import PointCloud2, Image
 from geometry_msgs.msg import PoseStamped, Point, Quaternion
 from nav_msgs.msg import OccupancyGrid, Odometry
 from std_msgs.msg import Float32MultiArray, MultiArrayDimension, Int32, Int32MultiArray
-from toposlam_msgs.msg import TopologicalPath
+# from toposlam_msgs.msg import TopologicalPath
 from visualization_msgs.msg import Marker, MarkerArray
+from rclpy.qos import QoSProfile
+from rclpy.parameter import Parameter
+from ament_index_python.packages import get_package_share_directory
 from std_msgs.msg import Bool
 from collections import deque
 from cv_bridge import CvBridge
 
-rospy.init_node('prism_topomap_node')
-
-class ResultsPublisher:
+class ResultsPublisher(Node):
     def __init__(self, map_frame):
+        super().__init__('results_publisher')
+        # QoS profile for publishers (similar to latch=True in ROS1)
+        qos_profile = QoSProfile(
+            reliability=QoSReliabilityPolicy.RELIABLE,
+            history=QoSHistoryPolicy.KEEP_LAST,
+            depth=100
+        )
         # Localization
-        self.cand_cloud_publisher = rospy.Publisher('/candidate_cloud', PointCloud2, latch=True, queue_size=100)
-        self.matched_points_publisher = rospy.Publisher('/matched_points', Marker, latch=True, queue_size=100)
-        self.unmatched_points_publisher = rospy.Publisher('/unmatched_points', Marker, latch=True, queue_size=100)
-        self.transforms_publisher = rospy.Publisher('/localization_transforms', Marker, latch=True, queue_size=100)
-        self.first_pr_publisher = rospy.Publisher('/first_point', Marker, latch=True, queue_size=100)
-        self.first_pr_image_publisher = rospy.Publisher('/place_recognition/image', Image, latch=True, queue_size=100)
-        self.freeze_publisher = rospy.Publisher('/freeze', Bool, latch=True, queue_size=100)
-        self.ref_cloud_pub = rospy.Publisher('/ref_cloud', PointCloud2, latch=True, queue_size=100)
+        self.cand_cloud_publisher = self.create_publisher(PointCloud2, '/candidate_cloud', qos_profile)
+        self.matched_points_publisher = self.create_publisher(Marker, '/matched_points', qos_profile)
+        self.unmatched_points_publisher = self.create_publisher(Marker, '/unmatched_points', qos_profile)
+        self.transforms_publisher = self.create_publisher(Marker, '/localization_transforms', qos_profile)
+        self.first_pr_publisher = self.create_publisher(Marker, '/first_point', qos_profile)
+        self.first_pr_image_publisher = self.create_publisher(Image, '/place_recognition/image', qos_profile)
+        self.freeze_publisher = self.create_publisher(Bool, '/freeze', qos_profile)
+        self.ref_cloud_pub = self.create_publisher(PointCloud2, '/ref_cloud', qos_profile)
         # Visualization
-        self.gt_map_publisher = rospy.Publisher('/habitat/gt_map', OccupancyGrid, latch=True, queue_size=100)
-        self.last_vertex_publisher = rospy.Publisher('/last_vertex', Marker, latch=True, queue_size=100)
-        self.last_vertex_id_publisher = rospy.Publisher('/last_vertex_id', Int32, latch=True, queue_size=100)
-        self.loop_closure_results_publisher = rospy.Publisher('/loop_closure_results', MarkerArray, latch=True, queue_size=100)
-        self.rel_pose_of_vcur_publisher = rospy.Publisher('/rel_pose_of_vcur', PoseStamped, latch=True, queue_size=100)
-        self.local_grid_publisher = rospy.Publisher('/local_grid', OccupancyGrid, latch=True, queue_size=100)
-        self.cur_grid_publisher = rospy.Publisher('/current_grid', OccupancyGrid, latch=True, queue_size=100)
-        self.graph_viz_pub = rospy.Publisher('topological_map', MarkerArray, latch=True, queue_size=100)
-        self.tfbr = tf.TransformBroadcaster()
+        self.gt_map_publisher = self.create_publisher(OccupancyGrid, '/habitat/gt_map', qos_profile)
+        self.last_vertex_publisher = self.create_publisher(Marker, '/last_vertex', qos_profile)
+        self.last_vertex_id_publisher = self.create_publisher(Int32, '/last_vertex_id', qos_profile)
+        self.loop_closure_results_publisher = self.create_publisher(MarkerArray, '/loop_closure_results', qos_profile)
+        self.rel_pose_of_vcur_publisher = self.create_publisher(PoseStamped, '/rel_pose_of_vcur', qos_profile)
+        self.local_grid_publisher = self.create_publisher(OccupancyGrid, '/local_grid', qos_profile)
+        self.cur_grid_publisher = self.create_publisher(OccupancyGrid, '/current_grid', qos_profile)
+        self.graph_viz_pub = self.create_publisher(MarkerArray, 'topological_map', qos_profile)
+        # Navigation
+        self.path_publisher = self.create_publisher(TopologicalPath, '/topological_path', qos_profile)
+        self.path_marker_publisher = self.create_publisher(Marker, '/topological_path_marker', qos_profile)
+        self.pointgoal_publisher = self.create_publisher(PoseStamped, '/pointgoal', qos_profile)
+        # TF broadcaster
+        self.tf_broadcaster = TransformBroadcaster(self)
         self.map_frame = map_frame
         self.path_to_gt_map = None
-        # Navigation
-        self.path_publisher = rospy.Publisher('/topological_path', TopologicalPath, latch=True, queue_size=100)
-        self.path_marker_publisher = rospy.Publisher('/topological_path_marker', Marker, latch=True, queue_size=100)
-        self.pointgoal_publisher = rospy.Publisher('/pointgoal', PoseStamped, latch=True, queue_size=100)
         # Current timestamp
         self.current_stamp = None
 
@@ -71,7 +79,7 @@ class ResultsPublisher:
             vertices_marker.type = Marker.POINTS
             vertices_marker.id = 0
             vertices_marker.header.frame_id = self.map_frame
-            vertices_marker.header.stamp = rospy.Time.now()
+            vertices_marker.header.stamp = rclpy.time.Time()
             vertices_marker.scale.x = self.match_marker_size * 1.5
             vertices_marker.scale.y = self.match_marker_size * 1.5
             vertices_marker.scale.z = self.match_marker_size * 1.5
@@ -90,7 +98,7 @@ class ResultsPublisher:
             vertices_marker.type = Marker.POINTS
             vertices_marker.id = 0
             vertices_marker.header.frame_id = self.map_frame
-            vertices_marker.header.stamp = rospy.Time.now()
+            vertices_marker.header.stamp = self.get_clock().now().to_msg()
             vertices_marker.scale.x = self.match_marker_size
             vertices_marker.scale.y = self.match_marker_size
             vertices_marker.scale.z = self.match_marker_size
@@ -107,7 +115,7 @@ class ResultsPublisher:
             transforms_marker = Marker()
             transforms_marker.type = Marker.LINE_LIST
             transforms_marker.header.frame_id = self.map_frame
-            transforms_marker.header.stamp = rospy.Time.now()
+            transforms_marker.header.stamp = self.get_clock().now().to_msg()
             transforms_marker.scale.x = 0.1
             transforms_marker.color.r = 1
             transforms_marker.color.g = 0
@@ -126,7 +134,7 @@ class ResultsPublisher:
         vertices_marker.type = Marker.POINTS
         vertices_marker.id = 0
         vertices_marker.header.frame_id = self.map_frame
-        vertices_marker.header.stamp = rospy.Time.now()
+        vertices_marker.header.stamp = self.get_clock().now().to_msg()
         vertices_marker.scale.x = self.match_marker_size
         vertices_marker.scale.y = self.match_marker_size
         vertices_marker.scale.z = self.match_marker_size
@@ -154,18 +162,18 @@ class ResultsPublisher:
         #cloud_with_fields['r'] = cloud[:, 3]
         #cloud_with_fields['g'] = cloud[:, 4]
         #cloud_with_fields['b'] = cloud[:, 5]
-        #cloud_with_fields = ros_numpy.point_cloud2.merge_rgb_fields(cloud_with_fields)
-        cloud_msg = ros_numpy.point_cloud2.array_to_pointcloud2(cloud_with_fields)
+        #cloud_with_fields = ros2_numpy.point_cloud2.merge_rgb_fields(cloud_with_fields)
+        cloud_msg = ros2_numpy.point_cloud2.array_to_pointcloud2(cloud_with_fields)
         if stamp is not None:
             cloud_msg.header.stamp = stamp
         else:
-            cloud_msg.header.stamp = rospy.Time.now()
+            cloud_msg.header.stamp = self.get_clock().now().to_msg()
         cloud_msg.header.frame_id = 'base_link'
         self.ref_cloud_pub.publish(cloud_msg)
 
     def publish_gt_map(self):
         gt_map_msg = OccupancyGrid()
-        gt_map_msg.header.stamp = rospy.Time.now()
+        gt_map_msg.header.stamp = self.get_clock().now().to_msg()
         gt_map_msg.header.frame_id = self.map_frame
         gt_map_msg.info.resolution = 0.05
         gt_map_msg.info.width = self.gt_map.gt_map.shape[1]
@@ -194,7 +202,7 @@ class ResultsPublisher:
         vertices_marker.type = Marker.POINTS
         vertices_marker.id = 0
         vertices_marker.header.frame_id = self.map_frame
-        vertices_marker.header.stamp = rospy.Time.now()
+        vertices_marker.header.stamp = self.get_clock().now().to_msg()
         vertices_marker.scale.x = self.vertex_marker_size
         vertices_marker.scale.y = self.vertex_marker_size
         vertices_marker.scale.z = self.vertex_marker_size
@@ -281,7 +289,7 @@ class ResultsPublisher:
 
     def publish_last_vertex(self, last_vertex, last_vertex_id):
         marker_msg = Marker()
-        marker_msg.header.stamp = rospy.Time.now()
+        marker_msg.header.stamp = self.get_clock().now().to_msg()
         marker_msg.header.frame_id = self.map_frame
         marker_msg.type = Marker.SPHERE
         last_x, last_y, last_theta = last_vertex['pose_for_visualization']
@@ -314,7 +322,7 @@ class ResultsPublisher:
         vertices_marker.type = Marker.POINTS
         vertices_marker.id = 0
         vertices_marker.header.frame_id = self.map_frame
-        vertices_marker.header.stamp = rospy.Time.now()
+        vertices_marker.header.stamp = self.get_clock().now().to_msg()
         vertices_marker.scale.x = self.loop_closure_marker_size
         vertices_marker.scale.y = self.loop_closure_marker_size
         vertices_marker.scale.z = self.loop_closure_marker_size
@@ -335,7 +343,7 @@ class ResultsPublisher:
         edges_marker.id = 1
         edges_marker.type = Marker.LINE_LIST
         edges_marker.header.frame_id = self.map_frame
-        edges_marker.header.stamp = rospy.Time.now()
+        edges_marker.header.stamp = self.get_clock().now().to_msg()
         edges_marker.scale.x = self.loop_closure_edge_marker_size
         edges_marker.color.r = 0
         edges_marker.color.g = 1
@@ -402,7 +410,7 @@ class ResultsPublisher:
 
     def publish_rel_pose(self, rel_pose_of_vcur):
         rel_pose_msg = PoseStamped()
-        rel_pose_msg.header.stamp = rospy.Time.now()
+        rel_pose_msg.header.stamp = self.get_clock().now().to_msg()
         rel_pose_msg.header.frame_id = 'last_vertex'
         rel_x, rel_y, rel_theta = rel_pose_of_vcur
         rel_pose_msg.pose.position.x = rel_x
@@ -489,25 +497,32 @@ class ResultsPublisher:
         freeze_msg.data = False
         self.freeze_publisher.publish(freeze_msg)
 
-class PRISMTopomapNode():
+class PRISMTopomapNode(Node):
     def __init__(self):
-        print('File:', __file__)
-        self.path_to_gt_map = rospy.get_param('~path_to_gt_map', None)
-        self.path_to_load_graph = rospy.get_param('~path_to_load_graph', None)
-        self.path_to_save_graph = rospy.get_param('~path_to_save_graph', None)
-        self.path_to_save_logs = rospy.get_param('~path_to_save_logs', None)
-        rospack = rospkg.RosPack()
-        config_file = os.path.join(rospack.get_path('prism_topomap'), 'config', rospy.get_param('~config_file'))
-        fin = open(config_file, 'r')
-        self.config = yaml.safe_load(fin)
-        fin.close()
-
-        self.toposlam_model = TopoSLAMModel(self.config,
-                                            path_to_load_graph=self.path_to_load_graph,
-                                            path_to_save_graph=self.path_to_save_graph,
-                                            path_to_save_logs=self.path_to_save_logs,
-                                            )
-
+        super().__init__('prism_topomap_node')
+        self.get_logger().info(f'File: {__file__}')
+        # Parameters
+        self.declare_parameter('path_to_gt_map', None)
+        self.declare_parameter('path_to_load_graph', None)
+        self.declare_parameter('path_to_save_graph', None)
+        self.declare_parameter('path_to_save_logs', None)
+        self.declare_parameter('config_file', 'config.yaml')  # Default config file name
+        self.path_to_gt_map = self.get_parameter('path_to_gt_map').value
+        self.path_to_load_graph = self.get_parameter('path_to_load_graph').value
+        self.path_to_save_graph = self.get_parameter('path_to_save_graph').value
+        self.path_to_save_logs = self.get_parameter('path_to_save_logs').value
+        config_file_name = self.get_parameter('config_file').value
+        # Load config
+        package_share_dir = get_package_share_directory('prism_topomap')
+        config_file = os.path.join(package_share_dir, 'config', config_file_name)
+        with open(config_file, 'r') as fin:
+            self.config = yaml.safe_load(fin)
+        self.toposlam_model = TopoSLAMModel(
+            self.config,
+            path_to_load_graph=self.path_to_load_graph,
+            path_to_save_graph=self.path_to_save_graph,
+            path_to_save_logs=self.path_to_save_logs,
+        )
         self.gt_poses = []
         self.odom_poses = []
         self.curb_clouds = []
@@ -518,14 +533,21 @@ class PRISMTopomapNode():
         self.metric_goal = None
         self.path_to_goal = None
         self.init_publishers_and_subscribers(self.config)
-
         if self.publish_gt_map_flag and self.path_to_gt_map is None:
-            print('ERROR! Path to gt map is not set but publish_gt_map is set true')
-            exit(1)
-
+            self.get_logger().error('Path to gt map is not set but publish_gt_map is set true')
+            raise RuntimeError('Path to gt map is not set but publish_gt_map is set true')
         self.current_stamp = None
-        rospy.Timer(rospy.Duration(self.localization_frequency), self.localize)
-        # rospy.Timer(rospy.Duration(self.rel_pose_correction_frequency), self.toposlam_model.correct_rel_pose)
+        # Create timers
+        self.localization_timer = self.create_timer(
+            1.0 / self.localization_frequency,
+            self.localize
+        )
+        
+        # Uncomment if needed:
+        # self.rel_pose_correction_timer = self.create_timer(
+        #     1.0 / self.rel_pose_correction_frequency,
+        #     self.toposlam_model.correct_rel_pose
+        # )
 
     def init_publishers_and_subscribers(self, config):
         # Visualization
@@ -550,15 +572,35 @@ class PRISMTopomapNode():
         pointcloud_topic = pointcloud_config['topic']
         self.pcd_fields = pointcloud_config['fields']
         self.pcd_rotation = np.array(pointcloud_config['rotation_matrix'])
-        self.pcd_subscriber = rospy.Subscriber(pointcloud_topic, PointCloud2, self.pcd_callback)
+        qos_profile = QoSProfile(
+            reliability=QoSReliabilityPolicy.BEST_EFFORT,
+            history=QoSHistoryPolicy.KEEP_LAST,
+            depth=10
+        )
+        self.pcd_subscriber = self.create_subscription(
+            PointCloud2,
+            pointcloud_topic,
+            self.pcd_callback,
+            qos_profile
+        )
         self.use_curb_detection = pointcloud_config['subscribe_to_curbs']
         if self.use_curb_detection:
             curb_detection_topic = pointcloud_config['curb_detection_topic']
-            self.curb_detection_subscriber = rospy.Subscriber(curb_detection_topic, PointCloud2, self.curb_detection_callback)
+            self.curb_detection_subscriber = self.create_subscription(
+                PointCloud2,
+                curb_detection_topic,
+                self.curb_detection_callback,
+                qos_profile
+            )
         # Odometry
         odometry_config = input_config['odometry']
         odometry_topic = odometry_config['topic']
-        self.odom_subscriber = rospy.Subscriber(odometry_topic, Odometry, self.odom_callback)
+        self.odom_subscriber = self.create_subscription(
+            Odometry,
+            odometry_topic,
+            self.odom_callback,
+            10
+        )
         # GT pose for visualization and evaluation
         self.use_gt_pose = input_config['subscribe_to_gt_pose']
         if self.use_gt_pose:
@@ -566,26 +608,51 @@ class PRISMTopomapNode():
             pose_topic = gt_pose_config['topic']
             topic_type = gt_pose_config['type']
             if topic_type == 'PoseStamped':
-                self.pose_subscriber = rospy.Subscriber(pose_topic, PoseStamped, self.gt_pose_callback)
+                self.pose_subscriber = self.create_subscription(
+                    PoseStamped,
+                    pose_topic,
+                    self.gt_pose_callback,
+                    10
+                )
             else:
-                self.pose_subscriber = rospy.Subscriber(pose_topic, Odometry, self.gt_odom_pose_callback)
+                self.pose_subscriber = self.create_subscription(
+                    Odometry,
+                    pose_topic,
+                    self.gt_odom_pose_callback,
+                    10
+                )
         # Images
         self.use_images = input_config['subscribe_to_images']
         if self.use_images:
             front_image_config = input_config['image_front']
             front_image_topic = front_image_config['topic']
-            self.front_image_subscriber = rospy.Subscriber(front_image_topic, Image, self.front_image_callback)
+            self.front_image_subscriber = self.create_subscription(
+                Image,
+                front_image_topic,
+                self.front_image_callback,
+                10
+            )
             back_image_config = input_config['image_back']
             back_image_topic = back_image_config['topic']
-            self.back_image_subscriber = rospy.Subscriber(back_image_topic, Image, self.back_image_callback)
+            self.back_image_subscriber = self.create_subscription(
+                Image,
+                back_image_topic,
+                self.back_image_callback,
+                10
+            )
         # Navigation
-        self.goal_subscriber = rospy.Subscriber('/move_base_simple/goal', PoseStamped, self.goal_callback)
+        self.goal_subscriber = self.create_subscription(
+            PoseStamped,
+            '/move_base_simple/goal',
+            self.goal_callback,
+            10
+        )
         # Localization and correction frequency
         topomap_config = config['topomap']
         self.localization_frequency = topomap_config['localization_frequency']
         self.rel_pose_correction_frequency = topomap_config['rel_pose_correction_frequency']
 
-    def localize(self, event=None):
+    def localize(self):
         self.results_publisher.freeze()
         self.toposlam_model.localizer.localize()
         localized_state = self.toposlam_model.localizer.get_localized_state()
@@ -595,43 +662,58 @@ class PRISMTopomapNode():
         rel_poses = localized_state['rel_poses']
         vertex_ids_unmatched = localized_state['vertex_ids_unmatched']
         localized_time = localized_state['timestamp']
+        
         if self.toposlam_model.found_loop_closure:
-            self.results_publisher.publish_loop_closure_results(self.toposlam_model.graph, \
-                                                                self.toposlam_model.path, \
-                                                                self.toposlam_model.last_vertex['pose_for_visualization'])
-        self.results_publisher.publish_localization_results(self.toposlam_model.graph, vertex_ids, rel_poses, vertex_ids_unmatched)
+            self.results_publisher.publish_loop_closure_results(
+                self.toposlam_model.graph,
+                self.toposlam_model.path,
+                self.toposlam_model.last_vertex['pose_for_visualization']
+            )
+        self.results_publisher.publish_localization_results(
+            self.toposlam_model.graph, 
+            vertex_ids, 
+            rel_poses, 
+            vertex_ids_unmatched
+        )
         self.results_publisher.unfreeze()
-        timestamp = rospy.Time(localized_time)
+        timestamp = self.get_clock().now().to_msg()
+        timestamp.sec = int(localized_time)
+        timestamp.nanosec = int((localized_time - int(localized_time)) * 1e9)
         self.results_publisher.publish_ref_cloud(self.cur_cloud, timestamp)
 
     def gt_pose_callback(self, msg):
         x, y, z = msg.pose.position.x, msg.pose.position.y, msg.pose.position.z
         orientation = msg.pose.orientation
-        _, __, theta = tf.transformations.euler_from_quaternion([orientation.x, orientation.y, orientation.z, orientation.w])
-        self.gt_poses.append([msg.header.stamp.to_sec(), [x, y, theta]])
+        _, __, theta = tf_transformations.euler_from_quaternion(
+            [orientation.x, orientation.y, orientation.z, orientation.w]
+        )
+        self.gt_poses.append([float(msg.header.stamp.sec) + float(msg.header.stamp.nanosec)/1e9, [x, y, theta]])
 
     def gt_odom_pose_callback(self, msg):
         x, y = msg.pose.pose.position.x, msg.pose.pose.position.y
         orientation = msg.pose.pose.orientation
-        _, __, theta = tf.transformations.euler_from_quaternion([orientation.x, orientation.y, orientation.z, orientation.w])
-        self.gt_poses.append([msg.header.stamp.to_sec(), [x, y, theta]])
+        _, __, theta = tf_transformations.euler_from_quaternion(
+            [orientation.x, orientation.y, orientation.z, orientation.w]
+        )
+        self.gt_poses.append([float(msg.header.stamp.sec) + float(msg.header.stamp.nanosec)/1e9, [x, y, theta]])
 
     def odom_callback(self, msg):
         x, y = msg.pose.pose.position.x, msg.pose.pose.position.y
         orientation = msg.pose.pose.orientation
-        _, __, theta = tf.transformations.euler_from_quaternion([orientation.x, orientation.y, orientation.z, orientation.w])
+        _, __, theta = tf_transformations.euler_from_quaternion(
+            [orientation.x, orientation.y, orientation.z, orientation.w]
+        )
         if self.publish_tf_from_odom:
             self.results_publisher.publish_tf_from_odom(msg)
-        self.odom_poses.append([msg.header.stamp.to_sec(), [x, y, theta]])
+        self.odom_poses.append([float(msg.header.stamp.sec) + float(msg.header.stamp.nanosec)/1e9, [x, y, theta]])
 
     def front_image_callback(self, msg):
         image = self.cv_bridge.imgmsg_to_cv2(msg)[:, :, :3]
-        #image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-        self.rgb_buffer_front.append([msg.header.stamp.to_sec(), image])
+        self.rgb_buffer_front.append([float(msg.header.stamp.sec) + float(msg.header.stamp.nanosec)/1e9, image])
 
     def back_image_callback(self, msg):
         image = self.cv_bridge.imgmsg_to_cv2(msg)[:, :, :3]
-        self.rgb_buffer_back.append([msg.header.stamp.to_sec(), image])
+        self.rgb_buffer_back.append([float(msg.header.stamp.sec) + float(msg.header.stamp.nanosec)/1e9, image])
 
     def goal_callback(self, msg):
         self.metric_goal = (msg.pose.position.x, msg.pose.position.y)
@@ -650,12 +732,11 @@ class PRISMTopomapNode():
             if pose_right[2] < 0:
                 pose_right[2] += 2 * np.pi
             result = alpha * pose_right + (1 - alpha) * pose_left
-            print('Interpolation:', pose_left, pose_right, result)
+            self.get_logger().info(f'Interpolation: {pose_left}, {pose_right}, {result}')
         return result
 
     def get_sync_pose_and_images(self, timestamp, arrays, is_pose_array):
         result = []
-        # print('Timestamp diff between pcd and curbs:', timestamp - self.curb_clouds[-1][0])
         delta = 0.05
         for array, is_pose in zip(arrays, is_pose_array):
             if len(array) == 0:
@@ -684,13 +765,12 @@ class PRISMTopomapNode():
     def curb_detection_callback(self, msg):
         start_time = time.time()
         cloud = get_xyz_coords_from_msg(msg, "xyz", self.pcd_rotation)
-        self.curb_clouds.append([msg.header.stamp.to_sec(), cloud])
+        self.curb_clouds.append([float(msg.header.stamp.sec) + float(msg.header.stamp.nanosec)/1e9, cloud])
 
     def get_navigation_subgoal(self):
         vcur = self.toposlam_model.last_vertex_id
-        # print('Path to goal:', self.path_to_goal)
         if self.path_to_goal is None:
-            print('NO PATH TO GOAL!')
+            self.get_logger().warning('NO PATH TO GOAL!')
             return
         if vcur in self.path_to_goal:
             self.path_to_goal = self.path_to_goal[self.path_to_goal.index(vcur):]
@@ -699,23 +779,20 @@ class PRISMTopomapNode():
         self.results_publisher.publish_topological_path(self.toposlam_model.graph, self.path_to_goal)
         # Publish navigation subgoal
         if len(self.path_to_goal) <= 2:
-            cur_global_pose = apply_pose_shift(self.toposlam_model.last_vertex['pose_for_visualization'], \
-                                                *self.toposlam_model.rel_pose_of_vcur)
+            cur_global_pose = apply_pose_shift(
+                self.toposlam_model.last_vertex['pose_for_visualization'],
+                *self.toposlam_model.rel_pose_of_vcur
+            )
             subgoal = get_rel_pose(*cur_global_pose, self.metric_goal[0], self.metric_goal[1], 0)
         else:
             pose_on_edge = self.toposlam_model.graph.get_edge(self.path_to_goal[0], self.path_to_goal[1])
-            # print('Rel pose of vcur:', self.toposlam_model.rel_pose_of_vcur)
-            # print('Pose on edge:', pose_on_edge)
             subgoal_in_vcur_coords = pose_on_edge
-            # print('Subgoal in vcur coords:', subgoal_in_vcur_coords)
             for i in range(1, len(self.path_to_goal) - 1):
                 pose_on_edge = self.toposlam_model.graph.get_edge(self.path_to_goal[i], self.path_to_goal[i + 1])
                 subgoal_in_vcur_coords_next = apply_pose_shift(subgoal_in_vcur_coords, *pose_on_edge)
                 if self.toposlam_model.last_vertex['grid'].is_inside(*subgoal_in_vcur_coords_next):
                     subgoal_in_vcur_coords = subgoal_in_vcur_coords_next
-                    # print('Subgoal in vcur coords:', subgoal_in_vcur_coords)
                 else:
-                    # print('break on i:', i)
                     break
             subgoal = get_rel_pose(*self.toposlam_model.rel_pose_of_vcur, *subgoal_in_vcur_coords)
         return subgoal
@@ -723,63 +800,53 @@ class PRISMTopomapNode():
     def pcd_callback(self, msg):
         if self.publish_gt_map_flag:
             self.results_publisher.publish_gt_map()
-        dt = (rospy.Time.now() - msg.header.stamp).to_sec()
-        # print('Msg lag is {} seconds'.format(dt))
+        current_time = self.get_clock().now().nanoseconds / 1e9
+        msg_time = float(msg.header.stamp.sec) + float(msg.header.stamp.nanosec)/1e9
+        dt = current_time - msg_time
         if dt > 10000:
-            print('Too big message time difference. Probably you have wrong use_sim_time ROS param value')
+            self.get_logger().warning('Too big message time difference. Probably you have wrong use_sim_time ROS param value')
         if dt < -1000:
-            print('Too big negative message time difference. Is your clock published?')
+            self.get_logger().warning('Too big negative message time difference. Is your clock published?')
         if dt > 0.5 or dt < -0.5:
             return
-        cur_global_pose, cur_odom_pose, cur_img_front, cur_img_back, cur_curbs = self.get_sync_pose_and_images(msg.header.stamp.to_sec(),
+        cur_global_pose, cur_odom_pose, cur_img_front, cur_img_back, cur_curbs = self.get_sync_pose_and_images(
+            msg_time,
             [self.gt_poses, self.odom_poses, self.rgb_buffer_front, self.rgb_buffer_back, self.curb_clouds],
-            [True, True, False, False, False])
-        start_time = rospy.Time.now().to_sec()
+            [True, True, False, False, False]
+        )
+        start_time = time.time()
         while cur_odom_pose is None or (self.use_images and cur_img_front is None) or (self.use_images and cur_img_back is None):
-            cur_global_pose, cur_odom_pose, cur_img_front, cur_img_back, cur_curbs = self.get_sync_pose_and_images(msg.header.stamp.to_sec(),
+            cur_global_pose, cur_odom_pose, cur_img_front, cur_img_back, cur_curbs = self.get_sync_pose_and_images(
+                msg_time,
                 [self.gt_poses, self.odom_poses, self.rgb_buffer_front, self.rgb_buffer_back, self.curb_clouds],
-                [True, True, False, False, False])
-            rospy.sleep(1e-2)
-            if rospy.Time.now().to_sec() - start_time > 0.5:
-                print('Waiting for sync pose and images timed out!')
+                [True, True, False, False, False]
+            )
+            time.sleep(0.01)
+            if time.time() - start_time > 0.5:
+                self.get_logger().warning('Waiting for sync pose and images timed out!')
                 return
-        # if cur_curbs is None:
-        #     print('Cur curbs is None!')
         self.cur_global_pose = cur_global_pose
         if self.cur_global_pose is None:
-            print('No global pose!')
+            self.get_logger().warning('No global pose!')
             return
-        
-        # print('Cur odom pose:', cur_odom_pose)
         self.current_stamp = msg.header.stamp
         self.results_publisher.current_stamp = msg.header.stamp
-        self.toposlam_model.current_stamp = msg.header.stamp.to_sec()
-
+        self.toposlam_model.current_stamp = msg_time
         start_time = time.time()
         self.cur_cloud = get_xyz_coords_from_msg(msg, self.pcd_fields, self.pcd_rotation)
-        # print('Time for get xyz coords or lidar cloud:', time.time() - start_time)
-        start_time = time.time()
         self.toposlam_model.update(cur_global_pose, cur_odom_pose, cur_img_front, cur_img_back, self.cur_cloud, cur_curbs)
-
         # Publish graph and all the other visualization info
         self.results_publisher.publish_graph(self.toposlam_model.graph)
         self.results_publisher.publish_cur_grid(self.toposlam_model.cur_grid)
         self.results_publisher.publish_local_grid(self.toposlam_model.last_vertex['grid'])
         self.results_publisher.publish_last_vertex(self.toposlam_model.last_vertex, self.toposlam_model.last_vertex_id)
         self.results_publisher.publish_rel_pose(self.toposlam_model.rel_pose_of_vcur)
-        # print('Update by iou time:', time.time() - start_time)
-
-        # Publish navigation subgoal if a goal is set
-        if self.metric_goal is not None:
-            subgoal = self.get_navigation_subgoal()
-            # print('Subgoal:', subgoal)
-            self.results_publisher.publish_subgoal(subgoal)
 
     def save_graph(self):
         self.toposlam_model.save_graph()
 
     def run(self):
-        rospy.spin()
+        rclpy.spin(self)
 
 
 node = PRISMTopomapNode()
