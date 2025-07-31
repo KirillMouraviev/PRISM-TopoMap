@@ -108,8 +108,8 @@ class TopologicalGraph():
         xi, yi, _ = self.vertices[i]['pose_for_visualization']
         xj, yj, _ = self.vertices[j]['pose_for_visualization']
         print('\nAdd edge from ({}, {}) to ({}, {}) with rel pose ({}, {}, {})\n'.format(xi, yi, xj, yj, x, y, theta))
-        self.adj_lists[i].append((j, [x, y, theta]))
-        self.adj_lists[j].append((i, self.inverse_transform(x, y, theta)))
+        self.adj_lists[i].append((int(j), [x, y, theta]))
+        self.adj_lists[j].append((int(i), self.inverse_transform(x, y, theta)))
 
     def get_vertex(self, vertex_id):
         return self.vertices[vertex_id]
@@ -178,7 +178,10 @@ class TopologicalGraph():
             vertex_dict['grid'].save(os.path.join(output_path, str(i)))
             x, y, theta = vertex_dict['pose_for_visualization']
             descriptor = vertex_dict['descriptor']
-            vertices_to_save.append({'pose_for_visualization': (x, y, theta), 'descriptor': [float(x) for x in list(descriptor[0])]})
+            descriptor = np.array(descriptor)
+            if descriptor.ndim == 2:
+                descriptor = descriptor[0]
+            vertices_to_save.append({'pose_for_visualization': (x, y, theta), 'descriptor': [float(x) for x in list(descriptor)]})
         j = {'vertices': vertices_to_save, 'edges': self.adj_lists}
         fout = open(os.path.join(output_path, 'graph.json'), 'w')
         json.dump(j, fout)

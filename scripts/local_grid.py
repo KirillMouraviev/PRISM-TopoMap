@@ -4,6 +4,7 @@ from cv2 import warpAffine
 from utils import *
 import yaml
 import cv2
+from skimage.io import imread, imsave
 
 class LocalGrid:
     def __init__(self, 
@@ -13,7 +14,7 @@ class LocalGrid:
                  floor_height=0.0, ceil_height=1.0,
                  obstacles_attenuation=0.9,
                  curbs_attenuation=0.99,
-                 layer_names=['curbs', 'occupancy', 'height_map', 'density_map'],
+                 layer_names=['curbs', 'occupancy', 'height_map', 'density_map', 'density_map_cur'],
                  save_dir=None):
         self.resolution = resolution
         self.radius = radius
@@ -96,6 +97,7 @@ class LocalGrid:
         if 'density_map' in self.layer_names:
             self.layers['density_map_cur'], _, _ = np.histogram2d(points_ij_obstacles[:, 0], points_ij_obstacles[:, 1],
                                                bins=self.grid_size, range=[[0, self.grid_size], [0, self.grid_size]])
+            self.layers['density_map_cur'] = self.layers['density_map_cur'].astype(np.float32)
             self.layers['density_map'] = self.layers['density_map'] * self.obstacles_attenuation + self.layers['density_map_cur']
         # Fill height map
         if 'height_map' in self.layer_names:
@@ -196,11 +198,15 @@ class LocalGrid:
         if not os.path.exists(save_dir):
             os.mkdir(save_dir)
         for layer_name in self.layers:
+            if layer_name.startswith('density_map'):
+                self.layers[layer_name] = self.layers[layer_name].astype(np.uint8)
+                # print(layer_name, self.layers[layer_name].sum())
             if layer_name == 'height_map':
-                self.layers[layer_name] = np.clip(self.layers[layer_name], 0, self.ceil_height)
+                self.layers[layer_name] = np.clip(self.layers[layer_name], self.floor_height, self.ceil_height)
                 np.savez(os.path.join(save_dir, '{}.npz'.format(layer_name)), self.layers[layer_name])
             else:
-                cv2.imwrite(os.path.join(save_dir, '{}.png'.format(layer_name)), self.layers[layer_name])
+                # print(layer_name, self.layers[layer_name].shape, self.layers[layer_name].dtype)
+                imsave(os.path.join(save_dir, '{}.png'.format(layer_name)), self.layers[layer_name])
         metadata = {
             'layer_names': self.layer_names,
             'resolution': self.resolution,
@@ -216,7 +222,7 @@ class LocalGrid:
         fout.close()
 
 def load_local_grid(save_dir):
-    fin = open(os.path.join(save_dir, 'metadata.txt'), 'r')
+    fin = open(os.path.join(save_dir, 'metadata.yaml'), 'r')
     metadata = yaml.safe_load(fin)
     fin.close()
     grid = LocalGrid(
@@ -230,5 +236,9 @@ def load_local_grid(save_dir):
         curbs_attenuation = metadata['curbs_attenuation']
     )
     for layer_name in metadata['layer_names']:
-        grid.layers[layer_name] = cv2.imread(os.path.join(save_dir, '{}.png'.format(layer_name)))
+        if layer_name == 'height_map':
+            grid.layers[layer_name] = np.load(os.path.join(save_dir, '{}.npz'.format(layer_name)))['arr_0']
+        else:
+            grid.layers[layer_name] = imread(os.path.join(save_dir, '{}.png'.format(layer_name)))
+        # print(layer_name, grid.layers[layer_name].shape, grid.layers[layer_name].sum())
     return grid

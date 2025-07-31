@@ -536,7 +536,7 @@ class TopoSLAMModel():
         # print('Rel pose vcur to loc:', self.rel_pose_vcur_to_loc)
         # print('Rel poses:', self.localization_results['rel_poses'])
 
-        if localization_is_fresh:
+        if self.mode == 'mapping' and localization_is_fresh:
             vertex_ids = list(self.localization_results['vertex_ids_matched'])
             rel_poses = list(self.localization_results['rel_poses'])
             if vertex_ids is not None and rel_poses is not None:
