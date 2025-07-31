@@ -43,6 +43,36 @@ To run PRISM-TopoMap on your own robot or dataset, you need to install it as a R
 - [ROS](https://ros.org) Melodic or Noetic
 - For simulated demo: [habitat-sim v0.1.7](https://github.com/facebookresearch/habitat-sim/tree/v0.1.7), [habitat-lab v0.1.7](https://github.com/facebookresearch/habitat-lab/tree/v0.1.7), and [ROS tools for Habitat](https://github.com/CnnDepth/habitat_ros/tree/toposlam_experiments)
 
+## Docker env
+
+We provide a Dockerfile for building the environment with all the dependencies.
+
+There are two versions:
+
+- `prism-dev`: basic environment without ROS2
+- `prism-dev-ros2`: environment with ROS2 support
+
+To build the image run:
+
+```bash
+# without ros2
+docker compose build prism-dev
+
+# with ros2
+docker compose build prism-dev-ros2
+```
+
+After you build the image, you can run it and attach interactive terminal:
+
+```bash
+# without ros2
+docker compose run --rm -it prism-dev bash
+
+# with ros2
+docker compose run --rm -it prism-dev-ros2 bash
+```
+
+
 ## Installation
 After installing ROS and OpenPlaceRecognition, build PRISM-TopoMap as ROS package:
 ```
