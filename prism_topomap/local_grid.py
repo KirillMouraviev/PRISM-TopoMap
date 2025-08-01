@@ -1,7 +1,7 @@
 import numpy as np
 np.float = np.float64
 from cv2 import warpAffine
-from utils import *
+from prism_topomap.utils import *
 import yaml
 import cv2
 from skimage.io import imread, imsave

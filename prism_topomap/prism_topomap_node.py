@@ -7,13 +7,13 @@ import ros2_numpy
 import os
 import cv2
 import sys
-import tf
+import transformations as tf
 import time
 import yaml
 import copy
-from utils import *
-from gt_map import GTMap
-from prism_topomap import TopoSLAMModel
+from prism_topomap.utils import *
+from prism_topomap.gt_map import GTMap
+from prism_topomap.prism_topomap import TopoSLAMModel
 from sensor_msgs.msg import PointCloud2, Image
 from geometry_msgs.msg import PoseStamped, Point, Quaternion
 from nav_msgs.msg import OccupancyGrid, Odometry
@@ -309,7 +309,7 @@ class ResultsPublisher(Node):
         vertex_id_msg.data = last_vertex_id
         self.last_vertex_id_publisher.publish(vertex_id_msg)
         self.tfbr.sendTransform((last_x, last_y, 0),
-                                    tf.transformations.quaternion_from_euler(0, 0, last_theta),
+                                    tf.quaternion_from_euler(0, 0, last_theta),
                                     self.current_stamp,
                                     "vcur",
                                     self.map_frame)
@@ -417,11 +417,11 @@ class ResultsPublisher(Node):
         rel_pose_msg.pose.position.y = rel_y
         rel_pose_msg.pose.position.z = 0
         orientation = Quaternion()
-        orientation.w, orientation.x, orientation.y, orientation.z = tf.transformations.quaternion_from_euler(0, 0, rel_theta)
+        orientation.w, orientation.x, orientation.y, orientation.z = tf.quaternion_from_euler(0, 0, rel_theta)
         rel_pose_msg.pose.orientation = orientation
         self.rel_pose_of_vcur_publisher.publish(rel_pose_msg)
         self.tfbr.sendTransform((rel_x, rel_y, 0), 
-                                 tf.transformations.quaternion_from_euler(0, 0, rel_theta),
+                                 tf.quaternion_from_euler(0, 0, rel_theta),
                                  self.current_stamp,
                                  "current_state",
                                  "vcur")
@@ -465,7 +465,7 @@ class ResultsPublisher(Node):
     def publish_subgoal(self, subgoal):
         x, y, theta = subgoal
         self.tfbr.sendTransform((x, y, 0), 
-                                 tf.transformations.quaternion_from_euler(0, 0, theta),
+                                 tf.quaternion_from_euler(0, 0, theta),
                                  self.current_stamp,
                                  "next_state",
                                  "current_state")
@@ -482,7 +482,7 @@ class ResultsPublisher(Node):
         orientation = msg.pose.pose.orientation
         _, __, theta = tf.transformations.euler_from_quaternion([orientation.x, orientation.y, orientation.z, orientation.w])
         self.tfbr.sendTransform((x, y, 0),
-                                tf.transformations.quaternion_from_euler(0, 0, theta),
+                                tf.quaternion_from_euler(0, 0, theta),
                                 msg.header.stamp,
                                 msg.child_frame_id,
                                 msg.header.frame_id)
@@ -847,6 +847,7 @@ class PRISMTopomapNode(Node):
 
     def run(self):
         rclpy.spin(self)
+
 
 def main():
     node = PRISMTopomapNode()

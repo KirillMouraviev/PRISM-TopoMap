@@ -12,8 +12,8 @@ from scipy.spatial.transform import Rotation
 from skimage.io import imread, imsave
 from opr.pipelines.registration import PointcloudRegistrationPipeline, RansacGlobalRegistrationPipeline, Feature2DGlobalRegistrationPipeline
 from opr.datasets.augmentations import DefaultHM3DImageTransform
-from local_grid import load_local_grid
-from utils import get_rel_pose
+from prism_topomap.local_grid import load_local_grid
+from prism_topomap.utils import get_rel_pose
 
 from memory_profiler import profile
 

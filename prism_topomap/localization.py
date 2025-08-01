@@ -2,7 +2,7 @@ import os
 import numpy as np
 import torch
 import time
-from utils import apply_pose_shift
+from prism_topomap.utils import apply_pose_shift
 from copy import deepcopy
 from threading import Lock
 from scipy.spatial.transform import Rotation
