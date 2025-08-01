@@ -1,4 +1,4 @@
-import ros_numpy
+import ros2_numpy
 import os
 import numpy as np
 from skimage.transform import rotate as image_rotate
@@ -7,7 +7,7 @@ from scipy.spatial.transform import Rotation
 from cv2 import warpAffine
 
 def get_xyz_coords_from_msg(msg, fields, rotation):
-    points_numpify = ros_numpy.point_cloud2.pointcloud2_to_array(msg)
+    points_numpify = ros2_numpy.point_cloud2.pointcloud2_to_array(msg)
     points_numpify = points_numpify.ravel()
     if fields == 'xyz':
         points_x = np.array([x[0] for x in points_numpify])[:, np.newaxis]
@@ -15,7 +15,7 @@ def get_xyz_coords_from_msg(msg, fields, rotation):
         points_z = np.array([x[2] for x in points_numpify])[:, np.newaxis]
         points_xyz = np.concatenate([points_x, points_y, points_z], axis=1)
     elif fields == 'xyzrgb':
-        points_numpify = ros_numpy.point_cloud2.split_rgb_field(points_numpify)
+        points_numpify = ros2_numpy.point_cloud2.split_rgb_field(points_numpify)
         points_x = np.array([x[0] for x in points_numpify])[:, np.newaxis]
         points_y = np.array([x[1] for x in points_numpify])[:, np.newaxis]
         points_z = np.array([x[2] for x in points_numpify])[:, np.newaxis]

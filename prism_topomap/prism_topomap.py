@@ -2,15 +2,14 @@ import numpy as np
 import os
 import cv2
 import sys
-import tf
 import time
 import yaml
 import torch
-from localization import Localizer
-from utils import *
-from topo_graph import TopologicalGraph
-from local_grid import LocalGrid
-from models import get_place_recognition_model, get_registration_model
+from prism_topomap.localization import Localizer
+from prism_topomap.utils import *
+from prism_topomap.topo_graph import TopologicalGraph
+from prism_topomap.local_grid import LocalGrid
+from prism_topomap.models import get_place_recognition_model, get_registration_model
 from skimage.io import imsave
 from threading import Lock
 from typing import Dict
