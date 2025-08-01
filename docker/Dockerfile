@@ -14,7 +14,7 @@ ARG MAX_JOBS=4
 ARG PYTORCH_CUDA=cu121
 ARG PYTORCH_VERSION=2.1.2
 ARG TORCHVISION_VERSION=0.16.2
-ARG NUMPY_VERSION=1.26.3
+ARG NUMPY_VERSION=1.26.4
 ARG ME_COMMIT=4b628a7
 ARG FAISS_COMMIT=e45ae24
 
@@ -42,16 +42,16 @@ RUN python3 -m pip --no-cache-dir install \
         pip==${PIP_VERSION} \
         wheel==${WHEEL_VERSION} \
         setuptools==${SETUPTOOLS_VERSION} \
-        ninja==${NINJA_VERSION}
+        ninja==${NINJA_VERSION} \
+        numpy==${NUMPY_VERSION}
 
 ###############################################################################
-### 1a. PyTorch wheel (including torchvision and dependencies with numpy<2)
+### 1a. PyTorch wheel (including torchvision and dependencies)
 ###############################################################################
 RUN --mount=type=cache,target=/root/.cache/pip \
     pip wheel --wheel-dir /wheels \
         torch==${PYTORCH_VERSION} \
         torchvision==${TORCHVISION_VERSION} \
-        numpy==${NUMPY_VERSION} \
         --index-url https://download.pytorch.org/whl/${PYTORCH_CUDA}
 # MinkowskiEngine require torch installation to build itself
 RUN python3 -m pip install --no-cache-dir /wheels/torch*.whl
@@ -112,7 +112,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         python3-dev \
         python3-pip \
         python-is-python3 \
-        libopenblas-dev \
         git \
         nano \
         vim \
@@ -142,6 +141,19 @@ COPY --from=builder /wheels /tmp/wheels
 RUN python3 -m pip install --no-cache-dir /tmp/wheels/*.whl \
     && rm -rf /tmp/wheels
 
+# Install Open3D
+RUN python3 -m pip install open3d
+
+RUN apt-get update \
+    && apt-get install -y ffmpeg libsm6 libxext6
+
+# Install OpenPlaceRecognition
+RUN python3 -m pip install --upgrade setuptools \
+    && python3 -m pip install --upgrade pip
+RUN cd ${HOME} \
+    && git clone --branch feat/toposlam https://github.com/OPR-Project/OpenPlaceRecognition \
+    && cd OpenPlaceRecognition \
+    && python3 -m pip install -e .
 
 # - optional ROS2 Humble installation -
 RUN if [ "$INSTALL_ROS2" = "true" ]; then \
@@ -158,6 +170,8 @@ RUN if [ "$INSTALL_ROS2" = "true" ]; then \
             ros-dev-tools \
         && rm -rf /var/lib/apt/lists/*; \
     fi
+
+RUN python3 -m pip install ros2-numpy scikit-image
 
 # — working directory for convenience —
 WORKDIR ${HOME}

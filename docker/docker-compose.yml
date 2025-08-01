@@ -13,7 +13,6 @@ services:
     command: bash
     network_mode: host
     ipc: host
-    gpus: all
     # privileged: true
 
   prism-dev-ros2:
@@ -30,5 +29,4 @@ services:
     command: bash
     network_mode: host
     ipc: host
-    gpus: all
     # privileged: true

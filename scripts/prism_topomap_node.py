@@ -848,7 +848,10 @@ class PRISMTopomapNode(Node):
     def run(self):
         rclpy.spin(self)
 
+def main():
+    node = PRISMTopomapNode()
+    node.run()
+    node.save_graph()
 
-node = PRISMTopomapNode()
-node.run()
-node.save_graph()
+if __name__ == '__main__':
+    main()
