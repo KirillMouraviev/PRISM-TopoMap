@@ -145,7 +145,7 @@ RUN python3 -m pip install --no-cache-dir /tmp/wheels/*.whl \
 RUN python3 -m pip install open3d
 
 RUN apt-get update \
-    && apt-get install -y ffmpeg libsm6 libxext6
+    && apt-get install -y libopenblas-dev ffmpeg libsm6 libxext6
 
 # Install OpenPlaceRecognition
 RUN python3 -m pip install --upgrade setuptools \
@@ -176,6 +176,11 @@ RUN python3 -m pip install ros2-numpy scikit-image
 # — working directory for convenience —
 WORKDIR ${HOME}
 USER ${USER_NAME}
+
+# Clone PRISM-TopoMap
+RUN mkdir -p ${HOME}/ros2_ws/src \
+    && cd ${HOME}/ros2_ws/src \
+    && git clone --branch ros2 https://github.com/KirillMouraviev/PRISM-TopoMap
 
 RUN if [ "$INSTALL_ROS2" = "true" ]; then \
         # source ROS2 setup script
