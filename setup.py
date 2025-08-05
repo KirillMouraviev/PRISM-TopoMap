@@ -1,3 +1,5 @@
+import os
+from glob import glob
 from setuptools import find_packages, setup
 
 package_name = 'prism_topomap'
@@ -10,6 +12,8 @@ setup(
         ('share/ament_index/resource_index/packages',
             ['resource/' + package_name]),
         ('share/' + package_name, ['package.xml']),
+        (os.path.join('share', package_name), glob('launch/*.launch.py')),
+        (os.path.join('share', package_name, 'config'), glob('config/*'))
     ],
     install_requires=['setuptools'],
     zip_safe=True,
@@ -20,7 +24,7 @@ setup(
     tests_require=['pytest'],
     entry_points={
         'console_scripts': [
-            'prism_topomap = prism_topomap.prism_topomap_node:main',
+            'prism_topomap_node = prism_topomap.prism_topomap_node:main',
             'tf_to_odom = prism_topomap.tf_to_odom:main'
         ],
     },

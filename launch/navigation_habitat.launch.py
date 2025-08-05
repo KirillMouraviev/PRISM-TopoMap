@@ -25,7 +25,7 @@ def generate_launch_description():
         # Nodes
         Node(
             package='prism_topomap',
-            executable='prism_topomap_node.py',
+            executable='prism_topomap_node',
             name='prism_topomap_node',
             output='screen',
             parameters=[{
@@ -37,7 +37,7 @@ def generate_launch_description():
 
         Node(
             package='prism_topomap',
-            executable='navigation.py',
+            executable='navigation',
             name='navigation_server',
             output='screen',
             parameters=[{

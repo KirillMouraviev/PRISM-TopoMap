@@ -30,7 +30,7 @@ def generate_launch_description():
         # Nodes
         Node(
             package='prism_topomap',
-            executable='prism_topomap_node.py',
+            executable='prism_topomap_node',
             name='prism_topomap_node',
             output='screen',
             parameters=[{
@@ -42,7 +42,7 @@ def generate_launch_description():
         
         Node(
             package='prism_topomap',
-            executable='tf_to_odom.py',
+            executable='tf_to_odom',
             name='odometry_publisher',
             output='screen'
         ),

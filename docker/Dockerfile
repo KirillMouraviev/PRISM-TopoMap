@@ -144,9 +144,6 @@ RUN python3 -m pip install --no-cache-dir /tmp/wheels/*.whl \
 # Install Open3D
 RUN python3 -m pip install open3d
 
-RUN apt-get update \
-    && apt-get install -y libopenblas-dev ffmpeg libsm6 libxext6
-
 # Install OpenPlaceRecognition
 RUN python3 -m pip install --upgrade setuptools \
     && python3 -m pip install --upgrade pip
@@ -171,7 +168,10 @@ RUN if [ "$INSTALL_ROS2" = "true" ]; then \
         && rm -rf /var/lib/apt/lists/*; \
     fi
 
-RUN python3 -m pip install ros2-numpy scikit-image
+RUN apt-get update \
+    && apt-get install -y libopenblas-dev ffmpeg libsm6 libxext6
+
+RUN python3 -m pip install ros2-numpy scikit-image numpy-quaternion==2022.4.3 seaborn loguru cv_bridge
 
 # — working directory for convenience —
 WORKDIR ${HOME}

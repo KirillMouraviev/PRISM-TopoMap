@@ -1,6 +1,7 @@
 #!/usr/bin/env python
 
 import rclpy
+from rclpy.node import Node
 import numpy as np
 np.float = np.float64
 import ros2_numpy
@@ -849,7 +850,8 @@ class PRISMTopomapNode(Node):
         rclpy.spin(self)
 
 
-def main():
+def main(args=None):
+    rclpy.init(args=args)
     node = PRISMTopomapNode()
     node.run()
     node.save_graph()

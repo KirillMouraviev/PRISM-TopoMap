@@ -15,8 +15,6 @@ from opr.datasets.augmentations import DefaultHM3DImageTransform
 from prism_topomap.local_grid import load_local_grid
 from prism_topomap.utils import get_rel_pose
 
-from memory_profiler import profile
-
 class TopologicalGraph():
     def __init__(self,
                  place_recognition_index,
