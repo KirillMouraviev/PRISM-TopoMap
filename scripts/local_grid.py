@@ -198,11 +198,13 @@ class LocalGrid:
         if not os.path.exists(save_dir):
             os.mkdir(save_dir)
         for layer_name in self.layers:
-            if layer_name.startswith('density_map'):
-                self.layers[layer_name] = self.layers[layer_name].astype(np.uint8)
-                # print(layer_name, self.layers[layer_name].sum())
+            print(layer_name, self.layers[layer_name].sum())
             if layer_name == 'height_map':
-                self.layers[layer_name] = np.clip(self.layers[layer_name], self.floor_height, self.ceil_height)
+                self.layers[layer_name] = self.layers[layer_name].astype(np.float32)
+            else:
+                self.layers[layer_name] = self.layers[layer_name].astype(np.uint8)
+            if layer_name == 'height_map':
+                # self.layers[layer_name] = np.clip(self.layers[layer_name], self.floor_height, self.ceil_height)
                 np.savez(os.path.join(save_dir, '{}.npz'.format(layer_name)), self.layers[layer_name])
             else:
                 # print(layer_name, self.layers[layer_name].shape, self.layers[layer_name].dtype)
