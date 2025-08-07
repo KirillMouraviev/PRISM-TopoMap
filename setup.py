@@ -25,7 +25,8 @@ setup(
     entry_points={
         'console_scripts': [
             'prism_topomap_node = prism_topomap.prism_topomap_node:main',
-            'tf_to_odom = prism_topomap.tf_to_odom:main'
+            'tf_manager = prism_topomap.tf_manager:main',
+            'gt_for_itlp = prism_topomap.gt_for_itlp:main'
         ],
     },
 )

@@ -173,6 +173,9 @@ RUN apt-get update \
 
 RUN python3 -m pip install ros2-numpy scikit-image numpy-quaternion==2022.4.3 seaborn loguru cv_bridge
 
+COPY ros_entrypoint.sh /sbin/ros_entrypoint.sh
+RUN chmod 755 /sbin/ros_entrypoint.sh
+
 # — working directory for convenience —
 WORKDIR ${HOME}
 USER ${USER_NAME}
@@ -180,11 +183,14 @@ USER ${USER_NAME}
 # Clone PRISM-TopoMap
 RUN mkdir -p ${HOME}/ros2_ws/src \
     && cd ${HOME}/ros2_ws/src \
-    && git clone --branch ros2 https://github.com/KirillMouraviev/PRISM-TopoMap
+    && git clone --branch ros2 https://github.com/KirillMouraviev/PRISM-TopoMap \
+    && cd .. \
+    && colcon build
 
 RUN if [ "$INSTALL_ROS2" = "true" ]; then \
         # source ROS2 setup script
         echo "source /opt/ros/${ROS_DISTRO}/setup.bash" >> ${HOME}/.bashrc; \
     fi
 
+ENTRYPOINT ["/sbin/ros_entrypoint.sh"]
 CMD ["/bin/bash"]
