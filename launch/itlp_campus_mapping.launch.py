@@ -29,7 +29,7 @@ def generate_launch_description():
         # prism_topomap_node
         Node(
             package='prism_topomap',
-            executable='prism_topomap_node.py',
+            executable='prism_topomap_node',
             name='prism_topomap_node',
             output='screen',
             parameters=[{
@@ -42,7 +42,7 @@ def generate_launch_description():
         # transform_manager
         Node(
             package='prism_topomap',
-            executable='tf_manager.py',
+            executable='tf_manager',
             name='transform_manager',
             output='screen',
             parameters=[{
@@ -57,7 +57,7 @@ def generate_launch_description():
         # gt_tf_publisher
         Node(
             package='prism_topomap',
-            executable='gt_for_itlp.py',
+            executable='gt_for_itlp',
             name='gt_tf_publisher',
             output='screen',
             parameters=[{
@@ -70,33 +70,5 @@ def generate_launch_description():
                 'source_frame': 'map',
                 'target_frame': 'base_link',
             }]
-        ),
-
-        # trajectory_estimated
-        Node(
-            package='hector_trajectory_server',
-            executable='hector_trajectory_server',
-            name='trajectory_estimated',
-            parameters=[{
-                'target_frame_name': 'map',
-                'source_frame_name': 'current_state',
-            }],
-            remappings=[
-                ('/trajectory', '/trajectory_estimated')
-            ]
-        ),
-
-        # trajectory_gt
-        Node(
-            package='hector_trajectory_server',
-            executable='hector_trajectory_server',
-            name='trajectory_gt',
-            parameters=[{
-                'target_frame_name': 'map',
-                'source_frame_name': 'base_link',
-            }],
-            remappings=[
-                ('/trajectory', '/trajectory_gt')
-            ]
         ),
     ])
