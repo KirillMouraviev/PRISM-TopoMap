@@ -144,13 +144,14 @@ RUN python3 -m pip install --no-cache-dir /tmp/wheels/*.whl \
 # Install Open3D
 RUN python3 -m pip install open3d
 
-# Install OpenPlaceRecognition
-RUN python3 -m pip install --upgrade setuptools \
-    && python3 -m pip install --upgrade pip
-RUN cd ${HOME} \
-    && git clone --branch feat/toposlam https://github.com/OPR-Project/OpenPlaceRecognition \
-    && cd OpenPlaceRecognition \
-    && python3 -m pip install -e .
+# Install DVC (Data Version Control) for pulling OpenPlaceRecognition weights
+RUN apt install wget gpg \
+    && mkdir -p /etc/apt/keyrings \
+    && wget -qO - https://dvc.org/deb/iterative.asc | sudo gpg --dearmor -o /etc/apt/keyrings/packages.iterative.gpg \
+    && echo "deb [arch=amd64 signed-by=/etc/apt/keyrings/packages.iterative.gpg] https://dvc.org/deb/ stable main" | sudo tee /etc/apt/sources.list.d/dvc.list \
+    && chmod 644 /etc/apt/keyrings/packages.iterative.gpg /etc/apt/sources.list.d/dvc.list \
+    && apt update -y \
+    && apt install -y dvc
 
 # - optional ROS2 Humble installation -
 RUN if [ "$INSTALL_ROS2" = "true" ]; then \
@@ -165,14 +166,8 @@ RUN if [ "$INSTALL_ROS2" = "true" ]; then \
         && apt-get install -y --no-install-recommends \
             ros-${ROS_DISTRO}-ros-base \
             ros-dev-tools \
-        && rm -rf /var/lib/apt/lists/* \
-        && apt-get install -y ros-${ROS_DISTRO}-tf-transformations;
+        && rm -rf /var/lib/apt/lists/*; \
     fi
-
-RUN apt-get update \
-    && apt-get install -y libopenblas-dev ffmpeg libsm6 libxext6
-
-RUN python3 -m pip install ros2-numpy scikit-image numpy-quaternion==2022.4.3 seaborn loguru cv_bridge
 
 COPY ros_entrypoint.sh /sbin/ros_entrypoint.sh
 RUN chmod 755 /sbin/ros_entrypoint.sh
@@ -180,6 +175,21 @@ RUN chmod 755 /sbin/ros_entrypoint.sh
 # — working directory for convenience —
 WORKDIR ${HOME}
 USER ${USER_NAME}
+
+# Install OpenPlaceRecognition
+RUN python3 -m pip install --upgrade setuptools \
+    && python3 -m pip install --upgrade pip
+RUN cd ${HOME} \
+    && git clone --branch feat/toposlam https://github.com/OPR-Project/OpenPlaceRecognition \
+    && cd OpenPlaceRecognition \
+    && python3 -m pip install -e .
+#    && dvc pull
+
+RUN sudo apt-get update \
+    && sudo apt-get install -y libopenblas-dev ffmpeg libsm6 libxext6 \
+    && sudo apt-get install -y ros-${ROS_DISTRO}-tf-transformations
+
+RUN python3 -m pip install ros2-numpy scikit-image numpy-quaternion==2022.4.3 seaborn loguru cv_bridge
 
 # Clone PRISM-TopoMap
 RUN mkdir -p ${HOME}/ros2_ws/src \
