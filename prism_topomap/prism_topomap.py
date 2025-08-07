@@ -130,6 +130,7 @@ class TopoSLAMModel():
         self.max_grid_range = grid_config['max_range']
         # Registration
         registration_config = config['scan_matching']
+        registration_config['voxel_downsample_size'] = grid_config['resolution']
         if self.path_to_save_logs is not None:
             path_to_save_registration_results = os.path.join(self.path_to_save_logs, 'test_registration')
         else:
@@ -138,6 +139,7 @@ class TopoSLAMModel():
                                                          save_dir=path_to_save_registration_results)
         self.registration_score_threshold = registration_config['score_threshold']
         inline_registration_config = config['scan_matching_along_edge']
+        inline_registration_config['voxel_downsample_size'] = grid_config['resolution']
         if self.path_to_save_logs is not None:
             path_to_save_inline_registration_results = os.path.join(self.path_to_save_logs, 'test_inline_registration')
         else:

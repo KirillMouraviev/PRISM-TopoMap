@@ -165,7 +165,8 @@ RUN if [ "$INSTALL_ROS2" = "true" ]; then \
         && apt-get install -y --no-install-recommends \
             ros-${ROS_DISTRO}-ros-base \
             ros-dev-tools \
-        && rm -rf /var/lib/apt/lists/*; \
+        && rm -rf /var/lib/apt/lists/* \
+        && apt-get install -y ros-${ROS_DISTRO}-tf-transformations;
     fi
 
 RUN apt-get update \

@@ -12,6 +12,8 @@ import transformations as tf
 import time
 import yaml
 import copy
+import tf_transformations
+from tf2_ros import TransformBroadcaster
 from prism_topomap.utils import *
 from prism_topomap.gt_map import GTMap
 from prism_topomap.prism_topomap import TopoSLAMModel
@@ -21,7 +23,7 @@ from nav_msgs.msg import OccupancyGrid, Odometry
 from std_msgs.msg import Float32MultiArray, MultiArrayDimension, Int32, Int32MultiArray
 # from toposlam_msgs.msg import TopologicalPath
 from visualization_msgs.msg import Marker, MarkerArray
-from rclpy.qos import QoSProfile
+from rclpy.qos import QoSProfile, QoSReliabilityPolicy, QoSHistoryPolicy
 from rclpy.parameter import Parameter
 from ament_index_python.packages import get_package_share_directory
 from std_msgs.msg import Bool
@@ -56,11 +58,11 @@ class ResultsPublisher(Node):
         self.cur_grid_publisher = self.create_publisher(OccupancyGrid, '/current_grid', qos_profile)
         self.graph_viz_pub = self.create_publisher(MarkerArray, 'topological_map', qos_profile)
         # Navigation
-        self.path_publisher = self.create_publisher(TopologicalPath, '/topological_path', qos_profile)
+        # self.path_publisher = self.create_publisher(TopologicalPath, '/topological_path', qos_profile)
         self.path_marker_publisher = self.create_publisher(Marker, '/topological_path_marker', qos_profile)
         self.pointgoal_publisher = self.create_publisher(PoseStamped, '/pointgoal', qos_profile)
         # TF broadcaster
-        self.tf_broadcaster = TransformBroadcaster(self)
+        self.tfbr = TransformBroadcaster(self)
         self.map_frame = map_frame
         self.path_to_gt_map = None
         # Current timestamp

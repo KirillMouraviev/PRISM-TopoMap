@@ -62,7 +62,7 @@ def generate_launch_description():
             output='screen',
             parameters=[{
                 'path_to_gt': PathJoinSubstitution([
-                    '/media/kirill/7CM/ITLP_campus_bags/dataset/outdoor',
+                    '/data/ITLP_dataset_outdoor',
                     LaunchConfiguration('track_name'),
                     'track.csv'
                 ]),
