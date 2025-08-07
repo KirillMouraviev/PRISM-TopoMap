@@ -12,12 +12,12 @@ def generate_launch_description():
         ),
         DeclareLaunchArgument(
             'path_to_save_graph',
-            default_value='/media/kirill/7CM/ITLP_campus_bags/topo_graph_for_tracks_with_curbs_auto',
+            default_value='/data/maps/topo_graph_for_tracks_with_curbs_auto',
             description='Path to save the graph'
         ),
         DeclareLaunchArgument(
             'path_to_save_logs',
-            default_value='/home/kirill/TopoSLAM/toposlam_ws/data/prism_topomap_logs',
+            default_value='/data/prism_topomap_logs',
             description='Path to save logs'
         ),
         DeclareLaunchArgument(
