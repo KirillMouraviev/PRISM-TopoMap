@@ -36,6 +36,7 @@ def generate_launch_description():
                 'path_to_save_graph': LaunchConfiguration('path_to_save_graph'),
                 'path_to_save_logs': LaunchConfiguration('path_to_save_logs'),
                 'config_file': LaunchConfiguration('config_file'),
+                'use_sim_time': True
             }]
         ),
 
@@ -51,6 +52,7 @@ def generate_launch_description():
                 'publish_tf_from_odom': True,
                 'odometry_topic': '/glim_ros/odom',
                 'tf_from_odom_target_frame': 'base_link',
+                'use_sim_time': True
             }]
         ),
 
@@ -69,6 +71,7 @@ def generate_launch_description():
                 'odom_topic': '/glim_ros/odom',
                 'source_frame': 'map',
                 'target_frame': 'base_link',
+                'use_sim_time': True
             }]
         ),
     ])

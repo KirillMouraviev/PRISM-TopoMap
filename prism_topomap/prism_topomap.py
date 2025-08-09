@@ -514,6 +514,7 @@ class TopoSLAMModel():
         self.rel_poses_stamped.append([self.current_stamp] + self.rel_pose_of_vcur)
 
     def update(self, global_pose_for_visualization, cur_odom_pose, img_front, img_back, cur_cloud, cur_curbs):
+        print('Update')
         if self.odom_pose is None:
             self.odom_pose = cur_odom_pose
         x, y, theta = get_rel_pose(*cur_odom_pose, *self.odom_pose)
@@ -552,7 +553,6 @@ class TopoSLAMModel():
         else:
             print('Could not check loop closure - old localization')
 
-        t1 = time.time()
         if cur_cloud is None:
             print('No point cloud received!')
             return
@@ -579,8 +579,8 @@ class TopoSLAMModel():
             print('Changed:', changed)
             # !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
             if not changed:
-                print('Localization dt:', time.time() - self.localization_time)
-                if time.time() - self.localization_results['timestamp'] < 5:
+                print('Localization dt:', self.current_stamp - self.localization_time)
+                if self.current_stamp - self.localization_results['timestamp'] < 5:
                     #print('Localized stamp:', self.localizer.localized_stamp)
                     changed = self.reattach_by_localization(self.cur_iou, self.localization_results['timestamp'])
                     print('Changed from localization:', changed)
