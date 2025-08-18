@@ -2,7 +2,6 @@ import numpy as np
 import os
 import cv2
 import sys
-import tf
 import time
 import yaml
 import torch
@@ -553,7 +552,6 @@ class TopoSLAMModel():
         else:
             print('Could not check loop closure - old localization')
 
-        t1 = time.time()
         if cur_cloud is None:
             print('No point cloud received!')
             return
@@ -580,8 +578,8 @@ class TopoSLAMModel():
             print('Changed:', changed)
             # !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
             if not changed:
-                print('Localization dt:', time.time() - self.localization_time)
-                if time.time() - self.localization_results['timestamp'] < 5:
+                print('Localization dt:', self.current_stamp - self.localization_time)
+                if self.current_stamp - self.localization_results['timestamp'] < 5:
                     #print('Localized stamp:', self.localizer.localized_stamp)
                     changed = self.reattach_by_localization(self.cur_iou, self.localization_results['timestamp'])
                     print('Changed from localization:', changed)

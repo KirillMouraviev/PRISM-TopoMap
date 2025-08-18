@@ -4,6 +4,7 @@ from cv2 import warpAffine
 from utils import *
 import yaml
 import cv2
+import os
 from skimage.io import imread, imsave
 
 class LocalGrid:
@@ -198,7 +199,7 @@ class LocalGrid:
         if not os.path.exists(save_dir):
             os.mkdir(save_dir)
         for layer_name in self.layers:
-            print(layer_name, self.layers[layer_name].sum())
+            # print(layer_name, self.layers[layer_name].sum())
             if layer_name == 'height_map':
                 self.layers[layer_name] = self.layers[layer_name].astype(np.float32)
             else:
