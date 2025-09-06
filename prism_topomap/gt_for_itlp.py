@@ -34,7 +34,7 @@ class GTBroadcaster(Node):
             Odometry,
             self.odom_topic,
             self.odom_callback,
-            10
+            1
         )
         
         # Initialize variables

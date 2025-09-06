@@ -303,7 +303,7 @@ class ResultsPublisher(Node):
         marker_msg.scale.z = self.vcur_marker_size
         self.last_vertex_publisher.publish(marker_msg)
         vertex_id_msg = Int32()
-        self.get_logger().info("last vertex id: {}".format(last_vertex_id))
+        # self.get_logger().info("last vertex id: {}".format(last_vertex_id))
         vertex_id_msg.data = int(last_vertex_id)
         self.last_vertex_id_publisher.publish(vertex_id_msg)
         tf_msg = TransformStamped()
@@ -312,10 +312,10 @@ class ResultsPublisher(Node):
         tf_msg.transform.translation.x = last_x
         tf_msg.transform.translation.y = last_y
         tf_msg.transform.translation.z = 0.0
+        tf_msg.transform.rotation.w, \
         tf_msg.transform.rotation.x, \
         tf_msg.transform.rotation.y, \
-        tf_msg.transform.rotation.z, \
-        tf_msg.transform.rotation.w = tf.quaternion_from_euler(0, 0, last_theta)
+        tf_msg.transform.rotation.z = tf.quaternion_from_euler(0, 0, last_theta)
         self.tfbr.sendTransform(tf_msg)
 
     def publish_loop_closure_results(self, graph, path, global_pose_for_visualization):
@@ -433,10 +433,10 @@ class ResultsPublisher(Node):
         tf_msg.transform.translation.x = rel_x
         tf_msg.transform.translation.y = rel_y
         tf_msg.transform.translation.z = 0.0
+        tf_msg.transform.rotation.w, \
         tf_msg.transform.rotation.x, \
         tf_msg.transform.rotation.y, \
-        tf_msg.transform.rotation.z, \
-        tf_msg.transform.rotation.w = tf.quaternion_from_euler(0, 0, rel_theta)
+        tf_msg.transform.rotation.z = tf.quaternion_from_euler(0, 0, rel_theta)
         self.tfbr.sendTransform(tf_msg)
 
     def publish_topological_path(self, graph, path):
@@ -484,10 +484,10 @@ class ResultsPublisher(Node):
         tf_msg.transform.translation.x = x
         tf_msg.transform.translation.y = y
         tf_msg.transform.translation.z = 0.0
+        tf_msg.transform.rotation.w, \
         tf_msg.transform.rotation.x, \
         tf_msg.transform.rotation.y, \
-        tf_msg.transform.rotation.z, \
-        tf_msg.transform.rotation.w = tf.quaternion_from_euler(0, 0, theta)
+        tf_msg.transform.rotation.z = tf.quaternion_from_euler(0, 0, theta)
         self.tfbr.sendTransform(tf_msg)
         pointgoal_msg = PoseStamped()
         pointgoal_msg.header.stamp = self.current_stamp
@@ -500,7 +500,7 @@ class ResultsPublisher(Node):
     def publish_tf_from_odom(self, msg):
         x, y = msg.pose.pose.position.x, msg.pose.pose.position.y
         orientation = msg.pose.pose.orientation
-        _, __, theta = tf.transformations.euler_from_quaternion([orientation.x, orientation.y, orientation.z, orientation.w])
+        _, __, theta = tf.euler_from_quaternion([orientation.w, orientation.x, orientation.y, orientation.z])
         tf_msg = TransformStamped()
         tf_msg.header = msg.header
         tf_msg.child_frame_id = msg.child_frame_id
@@ -715,26 +715,31 @@ class PRISMTopomapNode(Node):
         timestamp = self.get_clock().now().to_msg()
         timestamp.sec = int(localized_time)
         timestamp.nanosec = int((localized_time - int(localized_time)) * 1e9)
-        self.results_publisher.publish_ref_cloud(self.cur_cloud, timestamp)
+        # self.results_publisher.publish_ref_cloud(self.cur_cloud, timestamp)
 
     def gt_pose_callback(self, msg):
         current_time = self.get_clock().now().nanoseconds / 1e9
         msg_time = float(msg.header.stamp.sec) + float(msg.header.stamp.nanosec)/1e9
         dt = current_time - msg_time
-        self.get_logger().info("GT pose oldness: {}".format())
+        # self.get_logger().info("GT pose oldness: {}".format(dt))
         x, y, z = msg.pose.position.x, msg.pose.position.y, msg.pose.position.z
         orientation = msg.pose.orientation
         _, __, theta = tf.euler_from_quaternion(
-            [orientation.x, orientation.y, orientation.z, orientation.w]
+            [orientation.w, orientation.x, orientation.y, orientation.z]
         )
         self.gt_poses.append([float(msg.header.stamp.sec) + float(msg.header.stamp.nanosec)/1e9, [x, y, theta]])
 
     def gt_odom_pose_callback(self, msg):
+        current_time = self.get_clock().now().nanoseconds / 1e9
+        msg_time = float(msg.header.stamp.sec) + float(msg.header.stamp.nanosec)/1e9
+        dt = current_time - msg_time
+        # self.get_logger().info("GT pose oldness: {}".format(dt))
         x, y = msg.pose.pose.position.x, msg.pose.pose.position.y
         orientation = msg.pose.pose.orientation
         _, __, theta = tf.euler_from_quaternion(
-            [orientation.x, orientation.y, orientation.z, orientation.w]
+            [orientation.w, orientation.x, orientation.y, orientation.z]
         )
+        # self.get_logger().info("x y theta gt: {} {} {}".format(x, y, theta))
         self.gt_poses.append([float(msg.header.stamp.sec) + float(msg.header.stamp.nanosec)/1e9, [x, y, theta]])
 
     def odom_callback(self, msg):
@@ -745,10 +750,12 @@ class PRISMTopomapNode(Node):
         x, y = msg.pose.pose.position.x, msg.pose.pose.position.y
         orientation = msg.pose.pose.orientation
         _, __, theta = tf.euler_from_quaternion(
-            [orientation.x, orientation.y, orientation.z, orientation.w]
+            [orientation.w, orientation.x, orientation.y, orientation.z]
         )
         if self.publish_tf_from_odom:
             self.results_publisher.publish_tf_from_odom(msg)
+        # self.get_logger().info("orientation: {}".format(orientation))
+        # self.get_logger().info("x y theta odom: {} {} {}".format(x, y, theta))
         self.odom_poses.append([float(msg.header.stamp.sec) + float(msg.header.stamp.nanosec)/1e9, [x, y, theta]])
 
     def front_image_callback(self, msg):
@@ -872,7 +879,7 @@ class PRISMTopomapNode(Node):
                 [True, True, False, False, False]
             )
             time.sleep(0.01)
-            if time.time() - start_time > 15:
+            if time.time() - start_time > 1.5:
                 self.get_logger().warning('Waiting for sync pose and images for cloud stamped {} timed out!'.format(msg_time))
                 return
         self.cur_global_pose = cur_global_pose

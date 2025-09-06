@@ -15,7 +15,7 @@ input:
     type: Odometry
   subscribe_to_images: false
   odometry:
-    topic: /glim_ros/odom
+    topic: /dlo/odom_node/odom
     type: Odometry
 topomap:
   mode: mapping

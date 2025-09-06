@@ -50,7 +50,7 @@ def generate_launch_description():
                 'source_frame': 'map',
                 'target_frame': 'base_link',
                 'publish_tf_from_odom': True,
-                'odometry_topic': '/glim_ros/odom',
+                'odometry_topic': '/dlo/odom_node/odom',
                 'tf_from_odom_target_frame': 'base_link',
                 'use_sim_time': True
             }]
@@ -68,7 +68,7 @@ def generate_launch_description():
                     LaunchConfiguration('track_name'),
                     'track.csv'
                 ]),
-                'odom_topic': '/glim_ros/odom',
+                'odom_topic': '/dlo/odom_node/odom',
                 'source_frame': 'map',
                 'target_frame': 'base_link',
                 'use_sim_time': True

@@ -35,7 +35,7 @@ class OdometryPublisher(Node):
         self.odometry_publisher = self.create_publisher(
             Odometry,
             '/odom_gt',
-            100  # QoS profile depth (replaced queue_size)
+            1  # QoS profile depth (replaced queue_size)
         )
         
         # Subscriber and TF broadcaster if needed
