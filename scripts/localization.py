@@ -3,12 +3,15 @@ import numpy as np
 import torch
 import time
 import rospy
+import rospkg
 from utils import apply_pose_shift
 from copy import deepcopy
 from threading import Lock
 from scipy.spatial.transform import Rotation
 import sys
-sys.path.append('/home/kirill/TopoSLAM')
+rp = rospkg.RosPack()
+path_to_prism_topomap = rp.get_path('prism_topomap')
+sys.path.append(os.path.join(path_to_prism_topomap, 'submodules'))
 from toposlam_scanmatching.utils import Maps
 from toposlam_scanmatching.scan_matching_utils import match_grids
 

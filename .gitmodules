@@ -1,0 +1,3 @@
+[submodule "submodules/toposlam_scanmatching"]
+	path = submodules/toposlam_scanmatching
+	url = https://github.com/vas0x59/toposlam_scanmatching
