@@ -2,6 +2,7 @@
 
 import rospy
 import rospkg
+import signal
 import numpy as np
 np.float = np.float64
 import ros_numpy
@@ -62,7 +63,7 @@ class ResultsPublisher:
         self.gt_map = GTMap(os.path.join(path_to_gt_map, gt_map_filename))
 
     def publish_localization_results(self, graph, vertex_ids_matched, rel_poses, vertex_ids_unmatched):
-        print('vertex_ids_unmatched:', vertex_ids_unmatched)
+        # print('vertex_ids_unmatched:', vertex_ids_unmatched)
         if len(vertex_ids_matched) > 0:
             vertex_id_first = vertex_ids_matched[0]
             # Publish top-1 PlaceRecognition vertex
@@ -613,7 +614,9 @@ class PRISMTopomapNode():
     def gt_odom_pose_callback(self, msg):
         x, y = msg.pose.pose.position.x, msg.pose.pose.position.y
         orientation = msg.pose.pose.orientation
+        print('Orientation:', orientation)
         _, __, theta = tf.transformations.euler_from_quaternion([orientation.x, orientation.y, orientation.z, orientation.w])
+        print('x y theta gt: {} {} {}'.format(x, y, theta))
         self.gt_poses.append([msg.header.stamp.to_sec(), [x, y, theta]])
 
     def odom_callback(self, msg):
@@ -622,6 +625,7 @@ class PRISMTopomapNode():
         _, __, theta = tf.transformations.euler_from_quaternion([orientation.x, orientation.y, orientation.z, orientation.w])
         if self.publish_tf_from_odom:
             self.results_publisher.publish_tf_from_odom(msg)
+        # print('x y theta odom: {} {} {}'.format(x, y, theta))
         self.odom_poses.append([msg.header.stamp.to_sec(), [x, y, theta]])
 
     def front_image_callback(self, msg):
@@ -650,7 +654,7 @@ class PRISMTopomapNode():
             if pose_right[2] < 0:
                 pose_right[2] += 2 * np.pi
             result = alpha * pose_right + (1 - alpha) * pose_left
-            print('Interpolation:', pose_left, pose_right, result)
+            # print('Interpolation:', pose_left, pose_right, result)
         return result
 
     def get_sync_pose_and_images(self, timestamp, arrays, is_pose_array):
@@ -724,12 +728,14 @@ class PRISMTopomapNode():
         if self.publish_gt_map_flag:
             self.results_publisher.publish_gt_map()
         dt = (rospy.Time.now() - msg.header.stamp).to_sec()
-        # print('Msg lag is {} seconds'.format(dt))
+        print('Msg lag at start is {} seconds'.format(dt))
+        if dt > 0.5 or dt < -0.5:
+            return
         if dt > 10000:
             print('Too big message time difference. Probably you have wrong use_sim_time ROS param value')
+            return
         if dt < -1000:
             print('Too big negative message time difference. Is your clock published?')
-        if dt > 0.5 or dt < -0.5:
             return
         cur_global_pose, cur_odom_pose, cur_img_front, cur_img_back, cur_curbs = self.get_sync_pose_and_images(msg.header.stamp.to_sec(),
             [self.gt_poses, self.odom_poses, self.rgb_buffer_front, self.rgb_buffer_back, self.curb_clouds],
@@ -740,7 +746,8 @@ class PRISMTopomapNode():
                 [self.gt_poses, self.odom_poses, self.rgb_buffer_front, self.rgb_buffer_back, self.curb_clouds],
                 [True, True, False, False, False])
             rospy.sleep(1e-2)
-            if rospy.Time.now().to_sec() - start_time > 0.5:
+            dt = (rospy.Time.now() - msg.header.stamp).to_sec()
+            if dt > 0.5:
                 print('Waiting for sync pose and images timed out!')
                 return
         # if cur_curbs is None:
@@ -759,6 +766,8 @@ class PRISMTopomapNode():
         self.cur_cloud = get_xyz_coords_from_msg(msg, self.pcd_fields, self.pcd_rotation)
         # print('Time for get xyz coords or lidar cloud:', time.time() - start_time)
         start_time = time.time()
+        dt = (rospy.Time.now() - msg.header.stamp).to_sec()
+        print('Msg lag after synchronization is {} seconds'.format(dt))
         self.toposlam_model.update(cur_global_pose, cur_odom_pose, cur_img_front, cur_img_back, self.cur_cloud, cur_curbs)
 
         # Publish graph and all the other visualization info

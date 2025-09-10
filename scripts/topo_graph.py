@@ -81,8 +81,9 @@ class TopologicalGraph():
         ref_grid_tensor = torch.Tensor(grid.layers['occupancy']).to(self.device)
         #print('                Ref grid:', grid.max())
         #print('                Cand grid:', cand_grid.max())
-
+        start_time = time.time()
         transform, score = self.inline_registration_pipeline.infer(ref_grid_tensor, cand_grid_tensor, verbose=False)
+        print('Matching time:', time.time() - start_time)
         # print('TRANSFORM:', transform)
         # print('Score:', score)
         if score > self.inline_registration_score_threshold:
@@ -169,6 +170,7 @@ class TopologicalGraph():
         return None, float('inf')
 
     def save_to_json(self, output_path):
+        print('Start saving graph...')
         if not os.path.exists(output_path):
             os.mkdir(output_path)
         self.vertices = list(self.vertices)
@@ -186,3 +188,4 @@ class TopologicalGraph():
         fout = open(os.path.join(output_path, 'graph.json'), 'w')
         json.dump(j, fout)
         fout.close()
+        print('Done!')

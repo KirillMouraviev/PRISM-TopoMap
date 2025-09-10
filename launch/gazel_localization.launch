@@ -1,0 +1,33 @@
+<launch>
+  <arg name="track_name"/>
+  <arg name="path_to_load_graph" default="/media/kirill/7CM/gazel_maps/topo_graph_from_route1"/>
+  <arg name="config_file" default="gazel_localization.yaml"/>
+  <arg name="is_loaded" default="false"/>
+
+  <node pkg="prism_topomap" type="prism_topomap_node.py" name="prism_topomap_node" output="screen">
+    <param name="path_to_load_graph" value="$(arg path_to_load_graph)"/>
+    <param name="config_file" value="$(arg config_file)"/>
+  </node>
+
+  <node pkg="prism_topomap" type="tf_to_odom.py" name="odom_from_tf">
+    <param name="source_frame" value="map"/>
+    <param name="target_frame" value="base_link"/>
+  </node>
+
+  <node pkg="tf" type="static_transform_publisher" name="tf_odom_to_glim" args="-1364.4 429.3 -3.9 0.002 0 -0.775 0.632 odom odom_glim 100"/>
+
+  <node pkg="hector_trajectory_server" type="hector_trajectory_server" name="trajectory_estimated">
+    <param name="target_frame_name" value="map"/>
+    <param name="source_frame_name" value="current_state"/>
+    <remap from="/trajectory" to="/trajectory_estimated"/>
+  </node>
+
+  <node pkg="hector_trajectory_server" type="hector_trajectory_server" name="trajectory_gt">
+    <param name="target_frame_name" value="map"/>
+    <param name="source_frame_name" value="base_link"/>
+    <remap from="/trajectory" to="/trajectory_gt"/>
+  </node>
+
+  <node pkg="image_transport" type="republish" name="image_transport_center" args="compressed in:=/camera/center/image_raw raw out:=/camera/center/image_raw"/>
+  <node pkg="image_transport" type="republish" name="image_transport_back" args="compressed in:=/camera/right/image_raw raw out:=/camera/right/image_raw"/>
+</launch>

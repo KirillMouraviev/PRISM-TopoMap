@@ -2,10 +2,15 @@ import os
 import numpy as np
 import torch
 import time
+import rospy
 from utils import apply_pose_shift
 from copy import deepcopy
 from threading import Lock
 from scipy.spatial.transform import Rotation
+import sys
+sys.path.append('/home/kirill/TopoSLAM')
+from toposlam_scanmatching.utils import Maps
+from toposlam_scanmatching.scan_matching_utils import match_grids
 
 class Localizer():
     def __init__(self, graph, registration_model,
@@ -110,7 +115,8 @@ class Localizer():
         if self.stamp is None:
             print('Waiting for message to initialize localizer...')
             return None, None, None
-        print('Localize from stamp', self.stamp)
+        print('\nLocalize from stamp {}, now is {}'.format(self.stamp, rospy.Time.now().to_sec()))
+        start_time = time.time()
         vertex_ids = []
         rel_poses = []
         current_state = self.get_current_state()
@@ -135,24 +141,43 @@ class Localizer():
                 cand_vertex_dict = self.graph.get_vertex(idx)
                 cand_grid = cand_vertex_dict['grid'].copy()
                 grid_copy = start_grid.copy()
-                # grid_copy.grid[grid.grid > 2] = 0
-                # cand_grid.grid[cand_grid.grid > 2] = 0
+                cand_maps = Maps(height=cand_grid.layers['height_map'],
+                                 occupancy=cand_grid.layers['occupancy'],
+                                 density_map=cand_grid.layers['density_map'],
+                                 curbs=cand_grid.layers['curbs'])
+                ref_maps = Maps(height=grid_copy.layers['height_map'],
+                                 occupancy=grid_copy.layers['occupancy'],
+                                 density_map=grid_copy.layers['density_map'],
+                                 curbs=grid_copy.layers['curbs'])
+                start_time = time.time()
+                T = match_grids(cand_maps, ref_maps)
+                # print('Matching time:', time.time() - start_time)
+                # print('Scan matching transform new:', T)
+                rotation_matrix = np.eye(3)
+                rotation_matrix[:2, :2] = T[:2, :2]
+                x, y = T[:2, 2]
+                trans_j, trans_i = T[:2, 2]
+                _, __, rot_angle = Rotation.from_matrix(rotation_matrix[:3, :3]).as_rotvec()
+                transform = (trans_i, trans_j, rot_angle)
+                # print('Trans i trans j rot angle:', transform)
+                score = self.registration_pipeline.get_fitness(grid_copy.layers['occupancy'],
+                                                               cand_grid.layers['occupancy'], 
+                                                               transform)
                 cand_grid_tensor = torch.Tensor(cand_grid.layers['occupancy']).to(self.device)
                 ref_grid_tensor = torch.Tensor(grid_copy.layers['occupancy']).to(self.device)
-                # !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-                transform, score = self.registration_pipeline.infer(ref_grid_tensor, cand_grid_tensor, verbose=False)
-                #if score_icp < 0.8:
+                transform_old, score_old = self.registration_pipeline.infer(ref_grid_tensor, cand_grid_tensor, verbose=False)
+                # print('Transform old:', transform_old)
                 reg_scores.append(score)
                 print('Registration score of vertex {} is {}'.format(idx, score))
                 if score < self.registration_score_threshold:
                     pred_i_filtered.append(-1)
                     pred_tf.append([0, 0, 0, 0, 0, 0])
                 else:
-                # !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
                     tf_matrix = cand_grid.get_tf_matrix_xy(*transform)
                     pred_i_filtered.append(idx)
                     tf_rotation = Rotation.from_matrix(tf_matrix[:3, :3]).as_rotvec()
                     tf_translation = tf_matrix[:3, 3]
+                    # print('Tf translation and rotation:', tf_translation, tf_rotation)
                     pred_tf.append(list(tf_rotation) + list(tf_translation))
             if self.tests_dir is not None:
                 save_dir = os.path.join(self.tests_dir, 'test_{}'.format(self.cnt))
@@ -186,3 +211,4 @@ class Localizer():
             #print('Reg score:', reg_scores[i])
         rel_poses = np.array(rel_poses)
         self.write_localized_state(vertex_ids, rel_poses, vertex_ids_pr_unmatched, start_global_pose, start_stamp)
+        print('Localization done at {} seconds, now is {}\n'.format(time.time() - start_time, rospy.Time.now().to_sec()))

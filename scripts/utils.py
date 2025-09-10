@@ -1,6 +1,7 @@
+import numpy as np
+np.float = np.float64
 import ros_numpy
 import os
-import numpy as np
 from skimage.transform import rotate as image_rotate
 from skimage.io import imsave
 from scipy.spatial.transform import Rotation

@@ -1,0 +1,37 @@
+<launch>
+  <arg name="track_name"/>
+  <arg name="path_to_load_graph" default="/media/kirill/7CM/ITLP_campus_bags/topo_graph_for_tracks_with_curbs_auto"/>
+  <arg name="path_to_save_logs" default="/home/kirill/TopoSLAM/toposlam_ws/data/prism_topomap_logs"/>
+  <arg name="config_file" default="itlp_campus_localization_dlo.yaml"/>
+
+  <node pkg="prism_topomap" type="prism_topomap_node.py" name="prism_topomap_node" output="screen">
+    <param name="path_to_load_graph" value="$(arg path_to_load_graph)"/>
+    <param name="path_to_save_logs" value="$(arg path_to_save_logs)"/>
+    <param name="config_file" value="$(arg config_file)"/>
+  </node>
+
+  <node pkg="prism_topomap" type="tf_manager.py" name="transform_manager" output="screen">
+    <param name="source_frame" value="map"/>
+    <param name="target_frame" value="base_link"/>
+    <param name="publish_tf_from_odom" value="false"/>
+  </node>
+
+  <node pkg="prism_topomap" type="gt_for_itlp.py" name="gt_tf_publisher" output="screen">
+    <param name="path_to_gt" value="/media/kirill/7CM/ITLP_campus_bags/dataset/outdoor/$(arg track_name)/track.csv"/>
+    <param name="odom_topic" value="/dlo/odom_node/odom"/>
+    <param name="source_frame" value="map"/>
+    <param name="target_frame" value="base_link"/>
+  </node>
+
+  <node pkg="hector_trajectory_server" type="hector_trajectory_server" name="trajectory_estimated">
+    <param name="target_frame_name" value="map"/>
+    <param name="source_frame_name" value="current_state"/>
+    <remap from="/trajectory" to="/trajectory_estimated"/>
+  </node>
+
+  <node pkg="hector_trajectory_server" type="hector_trajectory_server" name="trajectory_gt">
+    <param name="target_frame_name" value="map"/>
+    <param name="source_frame_name" value="base_link"/>
+    <remap from="/trajectory" to="/trajectory_gt"/>
+  </node>
+</launch>

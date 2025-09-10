@@ -1,0 +1,72 @@
+input:
+  pointcloud:
+    topic: /all_lidar_unwarped
+    subscribe_to_curbs: true
+    curb_detection_topic: /curb_detection/points
+    fields: xyz
+    #rotation_matrix: [[ 0.9998 , -0.        ,      0.00653],               # Loaded Gazel
+    #                  [ 0.        ,  1.      ,  -0.0006329],
+    #                  [ -0.00653,  0.0006329 ,     0.9998 ]]
+    rotation_matrix: [[1, 0, 0],                                            # Empty Gazel
+                      [0, 1, 0],
+                      [0, 0, 1]]
+    floor_height: 0.5
+    ceiling_height: 20.0
+  subscribe_to_gt_pose: true
+  gt_pose:
+    topic: /odom_gt
+    type: Odometry
+  subscribe_to_images: false
+  odometry:
+    topic: /odom_gt
+    type: Odometry
+topomap:
+  mode: mapping
+  iou_threshold: 0.3
+  max_edge_length: 20.0
+  localization_frequency: 2.0
+  localization_timeout: 0.0
+  drift_coef: 1.0
+  rel_pose_correction_frequency: 0.5
+place_recognition:
+  model: minkloc3d
+  pointcloud_quantization_size: 0.5
+  #weights_path: /home/kirill/TopoSLAM/OpenPlaceRecognition/weights/place_recognition/habitat_multimodal_resnet18-gem-seqgem_minkloc3dv2.pth
+  weights_path: /home/kirill/TopoSLAM/OpenPlaceRecognition/weights/place_recognition/minkloc3d_nclt.pth
+  model_config_path: /home/kirill/TopoSLAM/OpenPlaceRecognition/configs/model/place_recognition/resnet18-seqgem_minkloc3dv2.yaml
+  top_k: 10
+local_occupancy_grid:
+  resolution: 0.25
+  radius: 50.0
+  max_range: 50.0
+  curbs_attenuation: 
+scan_matching:
+  model: feature2d
+  detector_type: ORB
+  score_threshold: 0.4
+  outlier_thresholds: [2.5, 1, 0.5, 0.25, 0.25]
+  voxel_downsample_size: 0.2
+  min_matches: 5
+  save_dir: /home/kirill/test_registration
+scan_matching_along_edge:
+  save_dir: /home/kirill/test_inline_registration
+  model: feature2d
+  detector_type: HarrisWithDistance
+  score_threshold: 0.35
+  outlier_thresholds: [2.5, 1, 0.5, 0.25, 0.25]
+  voxel_downsample_size: 0.2
+  min_matches: 5
+  jump_threshold: 2.0
+visualization:
+  publish_gt_map: false
+  map_frame: odom
+  publish_tf_from_odom: false
+  vertex_marker_size: 1.5
+  edge_marker_size: 0.7
+  text_marker_size: 1.5
+  match_marker_size: 2.0
+  vcur_marker_size: 2.5
+  loop_closure_marker_size: 3.0
+  loop_closure_edge_marker_size: 5.0
+  path_marker_size: 2.0
+  vertex_orientation_marker_size: 0.3

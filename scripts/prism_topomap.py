@@ -3,6 +3,7 @@ import os
 import cv2
 import sys
 import time
+import rospy
 import yaml
 import torch
 from localization import Localizer
@@ -294,7 +295,8 @@ class TopoSLAMModel():
             neighbours.append(vertex_id)
         dist_to_vcur = np.sqrt(self.rel_pose_of_vcur[0] ** 2 + self.rel_pose_of_vcur[1] ** 2)
         changed = False
-        if len(pose_diffs) > 0 and min(pose_diffs) < dist_to_vcur and min(pose_diffs) < 5:
+        print('Pose diffs and dist to vcur:', pose_diffs, dist_to_vcur)
+        if len(pose_diffs) > 0 and min(pose_diffs) < dist_to_vcur and min(pose_diffs) < self.max_edge_length:
             nearest_vertex_id = neighbours[np.argmin(pose_diffs)]
             pose_on_edge = edge_poses[np.argmin(pose_diffs)]
         else:
@@ -514,6 +516,8 @@ class TopoSLAMModel():
         self.rel_poses_stamped.append([self.current_stamp] + self.rel_pose_of_vcur)
 
     def update(self, global_pose_for_visualization, cur_odom_pose, img_front, img_back, cur_cloud, cur_curbs):
+        print('Update from stamp:', self.current_stamp)
+        start_time = time.time()
         if self.odom_pose is None:
             self.odom_pose = cur_odom_pose
         x, y, theta = get_rel_pose(*cur_odom_pose, *self.odom_pose)
@@ -526,6 +530,26 @@ class TopoSLAMModel():
         if self.last_vertex is None:
             self.init_localization()
         self.localization_results = self.localizer.get_localized_state()
+        # !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+        vertex_ids_matched_refined = []
+        rel_poses_refined = []
+        for i, v in enumerate(self.localization_results['vertex_ids_matched']):
+            true_rel_pose = get_rel_pose(*self.graph.get_vertex(v)['pose_for_visualization'],
+                                         *self.localization_results['global_pose_for_visualization'])
+            true_dst = np.sqrt(true_rel_pose[0] ** 2 + true_rel_pose[1] ** 2)
+            # print('v:', v)
+            # print('Pose of localization:', self.localization_results['global_pose_for_visualization'])
+            # print('Pose of v:', self.graph.get_vertex(v)['pose_for_visualization'])
+            # print('Pred rel pose:', self.localization_results['rel_poses'][i])
+            # print('True rel pose:', true_rel_pose)
+            if true_dst < 2 * self.max_edge_length:
+                vertex_ids_matched_refined.append(v)
+                rel_poses_refined.append(true_rel_pose)#self.localization_results['rel_poses'][i])
+            else:
+                print('Vertex {} is too far (distance is {}), remove it from localization'.format(v, true_dst))
+        self.localization_results['vertex_ids_matched'] = vertex_ids_matched_refined
+        self.localization_results['rel_poses'] = rel_poses_refined
+        # !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
         if self.localization_results is not None and self.localization_results['timestamp'] is not None:
             self.localization_time = self.localization_results['timestamp']
         localized_stamp = self.localization_results['timestamp']
@@ -558,7 +582,7 @@ class TopoSLAMModel():
         changed = self.reattach_by_edge(require_match=True)
         #last_x, last_y, _ = self.last_vertex['pose_for_visualization']
         inside_vcur = self.is_inside_vcur()
-        # print('Rel pose of vcur:', self.rel_pose_of_vcur)
+        print('Rel pose of vcur:', self.rel_pose_of_vcur)
         iou = self.cur_grid.get_iou(self.last_vertex['grid'], *self.graph.inverse_transform(*self.rel_pose_of_vcur), \
                                save=False, cnt=self.iou_cnt)
         self.iou_cnt += 1
@@ -603,6 +627,7 @@ class TopoSLAMModel():
             # !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
             if not changed and self.mode == 'localization':
                 self.reattach_by_edge(require_match=False)
+        print('Update done at {} seconds, now is {}'.format(time.time() - start_time, rospy.Time.now().to_sec()))
 
     def save_graph(self):
         if self.path_to_save_graph is not None:

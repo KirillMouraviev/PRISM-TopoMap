@@ -1,0 +1,68 @@
+input:
+  pointcloud:
+    topic: /velodyne_points
+    subscribe_to_curbs: true
+    curb_detection_topic: /SurfaceFitDetectorNode/curbs
+    fields: xyz
+    rotation_matrix: [[ 0.9992396 , -0.        , -0.03899011],
+                      [ 0.        ,  1.        , -0.        ],
+                      [ 0.03899011,  0.        ,  0.9992396 ]]
+    floor_height: -0.85
+    ceiling_height: 5.0
+  subscribe_to_gt_pose: true
+  gt_pose:
+    topic: /odom_gt
+    type: Odometry
+  subscribe_to_images: false
+  odometry:
+    topic: /glim_ros/odom
+    type: Odometry
+topomap:
+  mode: localization
+  start_location: 0
+  start_local_pose: [0, 0, -0.4]
+  iou_threshold: 0.3
+  max_edge_length: 5.0
+  drift_coef: 0.2
+  localization_frequency: 2.0
+  localization_timeout: 30.0
+  rel_pose_correction_frequency: 0.5
+place_recognition:
+  model: minkloc3d
+  pointcloud_quantization_size: 0.5
+  weights_path: weights/place_recognition/minkloc3d_nclt.pth
+  model_config_path: configs/model/place_recognition/resnet18-seqgem_minkloc3dv2.yaml
+  top_k: 5
+local_occupancy_grid:
+  resolution: 0.2
+  radius: 40.0
+  max_range: 40.0
+scan_matching:
+  model: feature2d
+  detector_type: ORB
+  score_threshold: 0.4
+  #outlier_thresholds: [2.5, 1, 0.5, 0.25, 0.25]
+  outlier_thresholds: [15, 7, 1, 0.1, 0.1]
+  #outlier_thresholds: [5, 2, 1, 0.5, 0.5]
+  min_matches: 5
+scan_matching_along_edge:
+  model: feature2d
+  detector_type: HarrisWithDistance
+  score_threshold: 0.35
+  #outlier_thresholds: [2.5, 1, 0.5, 0.25, 0.25]
+  outlier_thresholds: [5, 2, 1, 0.5, 0.5]
+  min_matches: 5
+  jump_threshold: 2.0
+visualization:
+  publish_gt_map: false
+  map_frame: map
+  publish_tf_from_odom: false
+  vertex_marker_size: 0.7
+  edge_marker_size: 0.3
+  text_marker_size: 0.7
+  match_marker_size: 1.0
+  vcur_marker_size: 1.2
+  loop_closure_marker_size: 1.2
+  loop_closure_edge_marker_size: 1.0
+  path_marker_size: 1.0
+  vertex_orientation_marker_size: 0.15
