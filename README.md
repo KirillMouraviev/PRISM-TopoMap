@@ -86,7 +86,7 @@ catkin_make
 After that, download the actual weights: [multimodal](https://drive.google.com/file/d/1r4Nw0YqHC9PKiZXDmUAWZkOTvgporPnS/view?usp=sharing) or [point cloud only](https://drive.google.com/file/d/19uPohPxQUa71jQzApjGPVbSyJeVdggwF/view?usp=drive_link) for the place recognition model and set correct path to the weights in the config files `habitat_mp3d.yaml` and `scout_rosbag.yaml`.
 
 ## Demo
-We provide two examples of usage: SLAM and localization in Habitat simulation and SLAM on rosbag from AgileX Scout Mini robot. The scenes for simulation demo are [here](data/mp3d_toposlam_validation_scenes). The rosbag from Scout robot can be downloaded [here](https://disk.yandex.ru/d/BT2iuAQKsmswmg).
+We provide two examples of usage: SLAM and localization in Habitat simulation and SLAM on rosbag from AgileX Scout Mini robot. The scenes for simulation demo can be downloaded from [Yandex](https://disk.yandex.ru/d/_dJPBG213Wc5CA) or [Google](https://drive.google.com/file/d/1ex1fyK5xDVIptnTVlzxpcSp5Zd0Cby0a/view?usp=sharing) drive. The rosbag from Scout robot can be downloaded [here](https://disk.yandex.ru/d/BT2iuAQKsmswmg).
 
 Launch files for the demo contain the following args:
 - `scene_name` (for simulated demo only): name of the scene from the dataset
