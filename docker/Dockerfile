@@ -144,14 +144,6 @@ RUN python3 -m pip install --no-cache-dir /tmp/wheels/*.whl \
 # Install Open3D
 RUN python3 -m pip install open3d
 
-# Install OpenPlaceRecognition
-RUN python3 -m pip install --upgrade setuptools \
-    && python3 -m pip install --upgrade pip
-RUN cd ${HOME} \
-    && git clone --branch feat/toposlam https://github.com/OPR-Project/OpenPlaceRecognition \
-    && cd OpenPlaceRecognition \
-    && python3 -m pip install -e .
-
 # - optional ROS2 Humble installation -
 RUN if [ "$INSTALL_ROS2" = "true" ]; then \
         # setup repo
@@ -168,23 +160,40 @@ RUN if [ "$INSTALL_ROS2" = "true" ]; then \
         && rm -rf /var/lib/apt/lists/*; \
     fi
 
-RUN apt-get update \
-    && apt-get install -y libopenblas-dev ffmpeg libsm6 libxext6
-
-RUN python3 -m pip install ros2-numpy scikit-image numpy-quaternion==2022.4.3 seaborn loguru cv_bridge
+COPY ros_entrypoint.sh /sbin/ros_entrypoint.sh
+RUN chmod 755 /sbin/ros_entrypoint.sh
 
 # — working directory for convenience —
 WORKDIR ${HOME}
 USER ${USER_NAME}
 
+# Install OpenPlaceRecognition
+RUN python3 -m pip install --upgrade setuptools \
+    && python3 -m pip install --upgrade pip
+RUN cd ${HOME} \
+    && git clone --branch feat/toposlam https://github.com/OPR-Project/OpenPlaceRecognition \
+    && cd OpenPlaceRecognition \
+    && python3 -m pip install -e . \
+    && cd weights/place_recognition \
+    && wget https://github.com/OPR-Project/OpenPlaceRecognition/releases/download/v1.0.0/minkloc3d_nclt.pth
+
+RUN sudo apt-get update \
+    && sudo apt-get install -y tmux libopenblas-dev ffmpeg libsm6 libxext6 \
+    && sudo apt-get install -y ros-${ROS_DISTRO}-tf-transformations ros-${ROS_DISTRO}-rqt-graph ros-${ROS_DISTRO}-rviz2
+
+RUN python3 -m pip install ros2-numpy scikit-image numpy-quaternion==2022.4.3 seaborn loguru cv_bridge
+
 # Clone PRISM-TopoMap
 RUN mkdir -p ${HOME}/ros2_ws/src \
     && cd ${HOME}/ros2_ws/src \
-    && git clone --branch ros2 https://github.com/KirillMouraviev/PRISM-TopoMap
+    && git clone --branch ros2 https://github.com/KirillMouraviev/PRISM-TopoMap \
+    && cd .. \
+    && colcon build
 
 RUN if [ "$INSTALL_ROS2" = "true" ]; then \
         # source ROS2 setup script
         echo "source /opt/ros/${ROS_DISTRO}/setup.bash" >> ${HOME}/.bashrc; \
     fi
 
+ENTRYPOINT ["/sbin/ros_entrypoint.sh"]
 CMD ["/bin/bash"]

@@ -14,6 +14,13 @@ services:
     network_mode: host
     ipc: host
     # privileged: true
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
 
   prism-dev-ros2:
     build:
@@ -30,3 +37,10 @@ services:
     network_mode: host
     ipc: host
     # privileged: true
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]

@@ -130,6 +130,7 @@ class TopoSLAMModel():
         self.max_grid_range = grid_config['max_range']
         # Registration
         registration_config = config['scan_matching']
+        registration_config['voxel_downsample_size'] = grid_config['resolution']
         if self.path_to_save_logs is not None:
             path_to_save_registration_results = os.path.join(self.path_to_save_logs, 'test_registration')
         else:
@@ -138,6 +139,7 @@ class TopoSLAMModel():
                                                          save_dir=path_to_save_registration_results)
         self.registration_score_threshold = registration_config['score_threshold']
         inline_registration_config = config['scan_matching_along_edge']
+        inline_registration_config['voxel_downsample_size'] = grid_config['resolution']
         if self.path_to_save_logs is not None:
             path_to_save_inline_registration_results = os.path.join(self.path_to_save_logs, 'test_inline_registration')
         else:
@@ -298,26 +300,26 @@ class TopoSLAMModel():
         else:
             print('Could not find proper edge to change')
             return False
-        print('Nearest vertex id:', nearest_vertex_id)
+        # print('Nearest vertex id:', nearest_vertex_id)
         # print('\n\n\n                    Pose on edge:', pose_on_edge)
         old_rel_pose_of_vcur = self.rel_pose_of_vcur
         rel_pose_to_vertex = get_rel_pose(*self.rel_pose_of_vcur, *pose_on_edge)
-        print('Rel pose of vcur:', self.rel_pose_of_vcur)
-        print('Pose on edge:', pose_on_edge)
-        print('Rel pose to vertex:', rel_pose_to_vertex)
+        # print('Rel pose of vcur:', self.rel_pose_of_vcur)
+        # print('Pose on edge:', pose_on_edge)
+        # print('Rel pose to vertex:', rel_pose_to_vertex)
         cur_grid_transformed = self.cur_grid.copy()
         rel_pose_to_vertex_inv = self.graph.inverse_transform(*rel_pose_to_vertex)
         cur_grid_transformed.transform(rel_pose_to_vertex_inv[0], rel_pose_to_vertex_inv[1], -rel_pose_to_vertex_inv[2])
         corr_x, corr_y, corr_theta = self.graph.get_transform_to_vertex(nearest_vertex_id, cur_grid_transformed)
-        print('Require match:', require_match)
+        # print('Require match:', require_match)
         if corr_x is not None:
-            print('Old transform:', rel_pose_to_vertex)
+            # print('Old transform:', rel_pose_to_vertex)
             corr_x_inv, corr_y_inv, corr_theta_inv = self.graph.inverse_transform(corr_x, corr_y, corr_theta)
             x, y, theta = apply_pose_shift(rel_pose_to_vertex, corr_x_inv, corr_y_inv, corr_theta_inv)
             #theta = -theta
-            print('Scan matching transform:', x, y, theta)
+            # print('Scan matching transform:', x, y, theta)
             diff = np.sqrt((x - rel_pose_to_vertex[0]) ** 2 + (y - rel_pose_to_vertex[1]) ** 2)
-            print('Diff:', diff)
+            # print('Diff:', diff)
             if diff < self.local_jump_threshold:
                 print('\n\n\n Change to vertex {} by edge \n\n\n'.format(nearest_vertex_id))
                 self.last_successful_match_time = self.current_stamp
@@ -335,7 +337,7 @@ class TopoSLAMModel():
             self.last_vertex = self.graph.get_vertex(self.last_vertex_id)
             if self.rel_pose_vcur_to_loc is not None:
                 self.rel_pose_vcur_to_loc = apply_pose_shift(self.graph.inverse_transform(*pose_on_edge), *self.rel_pose_vcur_to_loc)
-            print('Reset rel_poses_stamped to time', self.current_stamp)
+            # print('Reset rel_poses_stamped to time', self.current_stamp)
             self.rel_poses_stamped = [[self.current_stamp] + self.rel_pose_of_vcur]
         else:
             print('Failed to match current cloud to vertex {}!'.format(nearest_vertex_id))
@@ -345,7 +347,7 @@ class TopoSLAMModel():
     def reattach_by_localization(self, iou_threshold, localized_stamp):
         vertex_ids = self.localization_results['vertex_ids_matched']
         rel_poses = self.localization_results['rel_poses']
-        print('Reattach by localization')
+        # print('Reattach by localization')
         if len(self.rel_poses_stamped) > 0 and localized_stamp < self.rel_poses_stamped[0][0]:
             print('Old localization 1! Ignore it')
             print((self.rel_poses_stamped[0][0] - localized_stamp))
@@ -358,7 +360,7 @@ class TopoSLAMModel():
             #     continue
             pred_rel_pose_vcur_to_v = apply_pose_shift(self.rel_pose_vcur_to_loc, *self.graph.inverse_transform(*rel_poses[i]))
             rel_pose_robot_to_loc = get_rel_pose(*self.get_rel_pose_since_localization(), *rel_poses[i])
-            print('Rel pose robot to loc:', rel_pose_robot_to_loc)
+            # print('Rel pose robot to loc:', rel_pose_robot_to_loc)
             iou = self.cur_grid.get_iou(self.graph.get_vertex(v)['grid'], *rel_pose_robot_to_loc, save=False)
             vx, vy, vtheta = self.graph.get_vertex(v)['pose_for_visualization']
             x, y, theta = get_rel_pose(*self.last_vertex['pose_for_visualization'], 
@@ -368,10 +370,10 @@ class TopoSLAMModel():
             if dst > self.drift_coef * (self.current_stamp - self.last_successful_match_time) + 10:
                 print('Vertex {} is too far to match'.format(v))
                 continue
-            print('v:', v)
-            print('IoU between current state and ({}, {}) is {}'.format(vx, vy, iou))
-            print('IoU threshold is {}'.format(iou_threshold))
-            print('Need to change vcur:', self.need_to_change_vcur)
+            # print('v:', v)
+            # print('IoU between current state and ({}, {}) is {}'.format(vx, vy, iou))
+            # print('IoU threshold is {}'.format(iou_threshold))
+            # print('Need to change vcur:', self.need_to_change_vcur)
             if iou > iou_threshold or self.need_to_change_vcur:
                 self.last_successful_match_time = localized_stamp
                 found_proper_vertex = True
@@ -512,6 +514,7 @@ class TopoSLAMModel():
         self.rel_poses_stamped.append([self.current_stamp] + self.rel_pose_of_vcur)
 
     def update(self, global_pose_for_visualization, cur_odom_pose, img_front, img_back, cur_cloud, cur_curbs):
+        # print('Update')
         if self.odom_pose is None:
             self.odom_pose = cur_odom_pose
         x, y, theta = get_rel_pose(*cur_odom_pose, *self.odom_pose)
@@ -550,7 +553,6 @@ class TopoSLAMModel():
         else:
             print('Could not check loop closure - old localization')
 
-        t1 = time.time()
         if cur_cloud is None:
             print('No point cloud received!')
             return
@@ -574,14 +576,14 @@ class TopoSLAMModel():
             else:
                 print('Too far from location center')
             #print(self.path[0], self.last_vertex_id)
-            print('Changed:', changed)
+            # print('Changed:', changed)
             # !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
             if not changed:
-                print('Localization dt:', time.time() - self.localization_time)
-                if time.time() - self.localization_results['timestamp'] < 5:
+                print('Localization dt:', self.current_stamp - self.localization_time)
+                if self.current_stamp - self.localization_results['timestamp'] < 5:
                     #print('Localized stamp:', self.localizer.localized_stamp)
                     changed = self.reattach_by_localization(self.cur_iou, self.localization_results['timestamp'])
-                    print('Changed from localization:', changed)
+                    # print('Changed from localization:', changed)
                     if not changed:
                         if self.mode == 'mapping':
                             print('No proper vertex to change. Add new vertex')

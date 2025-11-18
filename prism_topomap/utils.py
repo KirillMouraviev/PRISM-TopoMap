@@ -7,9 +7,9 @@ from scipy.spatial.transform import Rotation
 from cv2 import warpAffine
 
 def get_xyz_coords_from_msg(msg, fields, rotation):
-    points_numpify = ros2_numpy.point_cloud2.pointcloud2_to_array(msg)
-    points_numpify = points_numpify.ravel()
+    points_numpify = ros2_numpy.point_cloud2.point_cloud2_to_array(msg)
     if fields == 'xyz':
+        points_numpify = points_numpify['xyz']
         points_x = np.array([x[0] for x in points_numpify])[:, np.newaxis]
         points_y = np.array([x[1] for x in points_numpify])[:, np.newaxis]
         points_z = np.array([x[2] for x in points_numpify])[:, np.newaxis]

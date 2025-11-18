@@ -67,12 +67,14 @@ class Localizer():
         np.savetxt(os.path.join(save_dir, 'reg_scores.txt'), np.array(reg_scores))
 
     def update_current_state(self, global_pose_for_visualization, cur_desc, cur_grid, timestamp):
+        print('Updating current state')
         self.mutex.acquire()
         self.global_pose_for_visualization = global_pose_for_visualization
         self.descriptor = cur_desc
         self.grid = cur_grid
         self.stamp = timestamp
         self.mutex.release()
+        print('Done')
 
     def write_localized_state(self, vertex_ids_matched, rel_poses, vertex_ids_pr_unmatched, start_global_pose, start_stamp):
         self.mutex.acquire()
