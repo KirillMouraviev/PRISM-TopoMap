@@ -9,13 +9,13 @@ services:
         INSTALL_ROS2: "false"
         HOST_UID: 1000
         HOST_GID: 1000
-    image: prism-dev:cuda12.1
+    image: kirillmouraviev/prism-topomap:cuda12.1
     command: bash
     network_mode: host
     ipc: host
     # privileged: true
 
-  method_prism-dev-ros1:
+  prism-dev-ros1:
     build:
       context: .
       dockerfile: Dockerfile
@@ -25,7 +25,7 @@ services:
         INSTALL_ROS1: "true"
         HOST_UID: 1000
         HOST_GID: 1000
-    image: prism-dev:cuda12.1-ros2
+    image: kirillmouraviev/prism-topomap:cuda12.1-ros-noetic
     command: bash
     network_mode: host
     ipc: host
