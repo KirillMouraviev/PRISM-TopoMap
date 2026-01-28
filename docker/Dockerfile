@@ -175,7 +175,7 @@ RUN cd ${HOME} \
     && cd OpenPlaceRecognition \
     && python3 -m pip install -e . \
     && cd weights/place_recognition \
-    && wget https://github.com/OPR-Project/OpenPlaceRecognition/releases/download/v1.0.0/minkloc3d_nclt.pth
+    && wget https://github.com/OPR-Project/OpenPlaceRecognition/releases/download/v0.2.1-weights/minkloc3d_nclt.pth
 
 RUN sudo apt-get update \
     && sudo apt-get install -y tmux libopenblas-dev ffmpeg libsm6 libxext6 \
