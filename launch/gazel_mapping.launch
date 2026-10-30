@@ -11,6 +11,7 @@
   </node>
 
   <node pkg="prism_topomap" type="tf_manager.py" name="tf_manager">
+    <param name="publish_odom_from_tf" value="true"/>
     <param name="source_frame" value="odom"/>
     <param name="target_frame" value="base_link"/>
     <param name="publish_tf_from_odom" value="false"/>

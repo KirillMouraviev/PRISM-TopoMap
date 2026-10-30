@@ -1,0 +1,39 @@
+<launch>
+  <arg name="track_name"/>
+  <arg name="path_to_load_graph" default="/media/kirill/7CM/ITLP_campus_bags/topo_graph_for_tracks_with_curbs_multimodal"/>
+  <arg name="path_to_save_logs" default="/home/kirill/TopoSLAM/toposlam_ws/data/prism_topomap_logs"/>
+  <arg name="config_file" default="itlp_campus_localization_mssplace.yaml"/>
+
+  <node pkg="prism_topomap" type="prism_topomap_node.py" name="prism_topomap_node" output="screen">
+    <param name="path_to_load_graph" value="$(arg path_to_load_graph)"/>
+    <param name="path_to_save_logs" value="$(arg path_to_save_logs)"/>
+    <param name="config_file" value="$(arg config_file)"/>
+  </node>
+
+  <node pkg="prism_topomap" type="tf_to_odom.py" name="odom_from_tf">
+    <param name="source_frame" value="map"/>
+    <param name="target_frame" value="base_link"/>
+  </node>
+
+  <node pkg="prism_topomap" type="gt_for_itlp.py" name="gt_tf_publisher" output="screen">
+    <param name="path_to_gt" value="/media/kirill/7CM/ITLP_campus_bags/dataset/outdoor/$(arg track_name)/track.csv"/>
+    <param name="odom_topic" value="/glim_ros/odom"/>
+    <param name="source_frame" value="map"/>
+    <param name="target_frame" value="base_link"/>
+  </node>
+
+  <node pkg="hector_trajectory_server" type="hector_trajectory_server" name="trajectory_estimated">
+    <param name="target_frame_name" value="map"/>
+    <param name="source_frame_name" value="current_state"/>
+    <remap from="/trajectory" to="/trajectory_estimated"/>
+  </node>
+
+  <node pkg="hector_trajectory_server" type="hector_trajectory_server" name="trajectory_gt">
+    <param name="target_frame_name" value="map"/>
+    <param name="source_frame_name" value="base_link"/>
+    <remap from="/trajectory" to="/trajectory_gt"/>
+  </node>
+
+  <node pkg="image_transport" type="republish" name="image_transport_front" args="compressed in:=/zed_node/left/image_rect_color raw out:=/zed_node/left/image_rect_color"/>
+  <node pkg="image_transport" type="republish" name="image_transport_back" args="compressed in:=/realsense_back/color/image_raw raw out:=/realsense_back/color/image_raw"/>
+</launch>

@@ -11,6 +11,7 @@ from utils import *
 from topo_graph import TopologicalGraph
 from local_grid import LocalGrid
 from models import get_place_recognition_model, get_registration_model
+from salsanext_inference import SalsaNextInference
 from skimage.io import imsave
 from threading import Lock
 from typing import Dict
@@ -29,6 +30,8 @@ class TopoSLAMModel():
         self.path_to_save_logs = path_to_save_logs
         if self.path_to_save_logs is not None and not os.path.exists(self.path_to_save_logs):
             os.mkdir(self.path_to_save_logs)
+        if self.path_to_save_logs is not None and not os.path.exists(os.path.join(self.path_to_save_logs, 'clouds')):
+            os.mkdir(os.path.join(self.path_to_save_logs, 'clouds'))
         if self.path_to_save_logs is not None:
             self.path_to_save_iou_results = os.path.join(self.path_to_save_logs, 'test_iou')
         else:
@@ -46,20 +49,23 @@ class TopoSLAMModel():
         self.in_sight_response = None
         self.cur_global_pose = None
         self.pose_pairs = []
-        layer_names = ['occupancy', 'density_map', 'height_map']
+        layer_names = ['occupancy', 'density_map', 'height_map', 'semantic']
         if config['input']['pointcloud']['subscribe_to_curbs']:
             layer_names.append('curbs')
         self.cur_grid = LocalGrid(resolution=self.grid_resolution, 
                                   radius=self.grid_radius, 
                                   max_range=self.max_grid_range,
                                   floor_height=self.floor_height, ceil_height=self.ceil_height,
+                                  semantic_probability_threshold=self.semantic_probability_threshold,
                                   layer_names=layer_names,
                                   save_dir=self.path_to_save_iou_results)
+        self.cur_cloud = None
         self.rel_poses_stamped = []
         self.rel_pose_of_vcur = None
         self.rel_pose_vcur_to_loc = None
         self.found_loop_closure = False
         self.need_to_change_vcur = False
+        self.matched = False
         self.path = []
         self.device = torch.device('cuda:0')
 
@@ -74,6 +80,8 @@ class TopoSLAMModel():
             self.graph.load_from_json(self.path_to_load_graph)
             print('Done!')
             # print('Grid max of graph vertex 0:', self.graph.vertices[0]['grid'].grid.max())
+        print('Loading SalsaNext semantic model...')
+        self.semantic_inference = SalsaNextInference(device='cuda:0', verbose=False)
         if self.path_to_save_logs is not None:
             path_to_save_localization_results = os.path.join(self.path_to_save_logs, 'localization_results')
         else:
@@ -82,7 +90,8 @@ class TopoSLAMModel():
                                    registration_model=self.registration_model,
                                    registration_score_threshold=self.registration_score_threshold,
                                    save_dir=path_to_save_localization_results,
-                                   top_k=self.top_k)
+                                   top_k=self.top_k,
+                                   semantic_inference=self.semantic_inference)
 
         self.localization_time = 0
         self.last_successful_match_time = 0
@@ -94,6 +103,8 @@ class TopoSLAMModel():
         self.local_grid_cnt = 0
         self.current_stamp = None
         self.mutex = Lock()
+        self.diag_log_path = rospy.get_param('~diag_log_path', '/tmp/prism_topomap_diag.log')
+        self._diag_file = open(self.diag_log_path, 'w')
         print('Initializing done!')
 
     def init_params_from_config(self, config):
@@ -115,6 +126,7 @@ class TopoSLAMModel():
         self.rel_pose_correction_frequency = topomap_config['rel_pose_correction_frequency']
         self.max_edge_length = topomap_config['max_edge_length']
         self.drift_coef = topomap_config['drift_coef']
+        self.drift_coef_theta = topomap_config.get('drift_coef_theta', 0.01)
         # Input
         pointcloud_config = config['input']['pointcloud']
         self.floor_height = pointcloud_config['floor_height']
@@ -129,6 +141,7 @@ class TopoSLAMModel():
         self.grid_resolution = grid_config['resolution']
         self.grid_radius = grid_config['radius']
         self.max_grid_range = grid_config['max_range']
+        self.semantic_probability_threshold = grid_config.get('semantic_probability_threshold', 0.3)
         # Registration
         registration_config = config['scan_matching']
         registration_config['voxel_downsample_size'] = grid_config['resolution']
@@ -153,12 +166,82 @@ class TopoSLAMModel():
         visualization_config = config['visualization']
         self.map_frame = visualization_config['map_frame']
 
+    def log_diag(self, event, **kwargs):
+        parts = [f't={self.current_stamp:.3f}', f'event={event}', f'vertex={self.last_vertex_id}']
+        if self.rel_pose_of_vcur is not None:
+            parts.append(f'rel_pose=({self.rel_pose_of_vcur[0]:.2f},{self.rel_pose_of_vcur[1]:.2f},{self.rel_pose_of_vcur[2]:.2f})')
+        parts.append(f'iou={self.cur_iou:.3f}')
+        parts.append(f'matched={self.matched}')
+        for k, v in kwargs.items():
+            parts.append(f'{k}={v}')
+        line = ' '.join(parts)
+        print(f'[DIAG] {line}')
+        self._diag_file.write(line + '\n')
+        self._diag_file.flush()
+
+    def get_estimated_pose(self):
+        if self.last_vertex is None or self.rel_pose_of_vcur is None:
+            return None
+        return apply_pose_shift(self.last_vertex['pose_for_visualization'], *self.rel_pose_of_vcur)
+
+    def log_pose_error(self):
+        """Log GT vs estimated pose using the scan-synced GT pose (correct timestamps)."""
+        if self.last_vertex is None or self.rel_pose_of_vcur is None:
+            return
+        if self.global_pose_for_visualization is None:
+            return
+        gt = self.global_pose_for_visualization
+        est = self.get_estimated_pose()
+        if est is None:
+            return
+        dx = gt[0] - est[0]
+        dy = gt[1] - est[1]
+        pos_err = float(np.sqrt(dx ** 2 + dy ** 2))
+        yaw_err = float(abs(normalize(gt[2] - est[2])))
+        yaw_err_deg = yaw_err * 180.0 / np.pi
+        line = (
+            f't={self.current_stamp:.3f} vertex={self.last_vertex_id} '
+            f'gt=({gt[0]:.3f},{gt[1]:.3f},{gt[2]:.3f}) '
+            f'est=({est[0]:.3f},{est[1]:.3f},{est[2]:.3f}) '
+            f'pos_err={pos_err:.3f}m yaw_err={yaw_err:.3f}rad ({yaw_err_deg:.1f}deg)'
+        )
+        print(f'[POSE_ERR] {line}')
+        if not hasattr(self, '_pose_err_file'):
+            pose_err_path = rospy.get_param('~pose_error_log_path', '/tmp/prism_pose_error.log')
+            if self.path_to_save_logs is not None:
+                pose_err_path = os.path.join(self.path_to_save_logs, 'pose_error.log')
+            os.makedirs(os.path.dirname(pose_err_path) or '.', exist_ok=True)
+            self._pose_err_file = open(pose_err_path, 'w')
+            self._pose_err_csv = open(pose_err_path.replace('.log', '.csv'), 'w')
+            self._pose_err_csv.write('t,vertex,gt_x,gt_y,gt_yaw,est_x,est_y,est_yaw,pos_err_m,yaw_err_rad,yaw_err_deg\n')
+        self._pose_err_file.write(line + '\n')
+        self._pose_err_file.flush()
+        self._pose_err_csv.write(
+            f'{self.current_stamp:.3f},{self.last_vertex_id},'
+            f'{gt[0]:.6f},{gt[1]:.6f},{gt[2]:.6f},'
+            f'{est[0]:.6f},{est[1]:.6f},{est[2]:.6f},'
+            f'{pos_err:.6f},{yaw_err:.6f},{yaw_err_deg:.3f}\n'
+        )
+        self._pose_err_csv.flush()
+        if pos_err > 5.0:
+            self.log_diag('pose_error_exceeded', pos_err=round(pos_err, 3), yaw_err_deg=round(yaw_err_deg, 1))
+
+    def fill_semantic(self, grid, cloud):
+        if cloud is None or grid is None or self.semantic_inference is None:
+            return
+        if getattr(grid, '_semantic_stamp', None) == self.current_stamp and grid.layers.get('semantic'):
+            return
+        _, _, _, probabilities = self.semantic_inference.predict(cloud)
+        grid.update_semantic_from_cloud(cloud, probabilities)
+        grid._semantic_stamp = self.current_stamp
+
     def correct_rel_pose(self, event=None):
         if self.last_vertex_id is None:
             return
         if self.cur_grid is None:
             return
         rel_x_old, rel_y_old, rel_theta_old = self.get_rel_pose_from_stamp(self.current_stamp)[0]
+        self.fill_semantic(self.cur_grid, self.cur_cloud)
         cur_grid_transformed = self.cur_grid.copy()
         cur_grid_transformed.transform(rel_x_old, rel_y_old, -rel_theta_old)
         x, y, theta = self.graph.get_transform_to_vertex(self.last_vertex_id, cur_grid_transformed)
@@ -284,65 +367,85 @@ class TopoSLAMModel():
         return rel_pose_after_localization
 
     def reattach_by_edge(self, require_match=True):
-        pose_diffs = []
-        edge_poses = []
-        neighbours = []
+        candidates = []
         # print('Vcur:', self.last_vertex_id)
         for vertex_id, pose_to_vertex in self.graph.adj_lists[self.last_vertex_id]:
-            edge_poses.append(pose_to_vertex)
             pose_diff = np.sqrt((pose_to_vertex[0] - self.rel_pose_of_vcur[0]) ** 2 + (pose_to_vertex[1] - self.rel_pose_of_vcur[1]) ** 2)
-            pose_diffs.append(pose_diff)
-            neighbours.append(vertex_id)
+            candidates.append((pose_diff, vertex_id, pose_to_vertex))
         dist_to_vcur = np.sqrt(self.rel_pose_of_vcur[0] ** 2 + self.rel_pose_of_vcur[1] ** 2)
-        changed = False
-        print('Pose diffs and dist to vcur:', pose_diffs, dist_to_vcur)
-        if len(pose_diffs) > 0 and min(pose_diffs) < dist_to_vcur and min(pose_diffs) < self.max_edge_length:
-            nearest_vertex_id = neighbours[np.argmin(pose_diffs)]
-            pose_on_edge = edge_poses[np.argmin(pose_diffs)]
-        else:
+        print('Pose diffs and dist to vcur:', [c[0] for c in candidates], dist_to_vcur)
+        # Neighbours no farther from the vehicle than the current vertex, nearest first.
+        candidates = [c for c in candidates
+                      if c[0] <= dist_to_vcur and c[0] < self.max_edge_length]
+        candidates.sort(key=lambda c: c[0])
+        if len(candidates) == 0:
             print('Could not find proper edge to change')
             return False
-        print('Nearest vertex id:', nearest_vertex_id)
-        # print('\n\n\n                    Pose on edge:', pose_on_edge)
-        old_rel_pose_of_vcur = self.rel_pose_of_vcur
-        rel_pose_to_vertex = get_rel_pose(*self.rel_pose_of_vcur, *pose_on_edge)
-        print('Rel pose of vcur:', self.rel_pose_of_vcur)
-        print('Pose on edge:', pose_on_edge)
-        print('Rel pose to vertex:', rel_pose_to_vertex)
-        cur_grid_transformed = self.cur_grid.copy()
-        rel_pose_to_vertex_inv = self.graph.inverse_transform(*rel_pose_to_vertex)
-        cur_grid_transformed.transform(rel_pose_to_vertex_inv[0], rel_pose_to_vertex_inv[1], -rel_pose_to_vertex_inv[2])
-        corr_x, corr_y, corr_theta = self.graph.get_transform_to_vertex(nearest_vertex_id, cur_grid_transformed)
-        print('Require match:', require_match)
-        if corr_x is not None:
-            print('Old transform:', rel_pose_to_vertex)
-            corr_x_inv, corr_y_inv, corr_theta_inv = self.graph.inverse_transform(corr_x, corr_y, corr_theta)
-            x, y, theta = apply_pose_shift(rel_pose_to_vertex, corr_x_inv, corr_y_inv, corr_theta_inv)
-            #theta = -theta
-            print('Scan matching transform:', x, y, theta)
-            diff = np.sqrt((x - rel_pose_to_vertex[0]) ** 2 + (y - rel_pose_to_vertex[1]) ** 2)
-            print('Diff:', diff)
-            if diff < self.local_jump_threshold:
-                print('\n\n\n Change to vertex {} by edge \n\n\n'.format(nearest_vertex_id))
-                self.last_successful_match_time = self.current_stamp
-                changed = True
-                self.rel_pose_of_vcur = self.graph.inverse_transform(x, y, theta)
+        print('Edge reattach candidates (nearest first):',
+              [(vid, d) for d, vid, _ in candidates])
+
+        changed = False
+        matched_vertex_id = None
+        matched_pose_on_edge = None
+        self.fill_semantic(self.cur_grid, self.cur_cloud)
+        for pose_diff, vertex_id, pose_on_edge in candidates:
+            print('Trying edge neighbour {} (dist={:.3f})'.format(vertex_id, pose_diff))
+            rel_pose_to_vertex = get_rel_pose(*self.rel_pose_of_vcur, *pose_on_edge)
+            print('Rel pose of vcur:', self.rel_pose_of_vcur)
+            print('Pose on edge:', pose_on_edge)
+            print('Rel pose to vertex:', rel_pose_to_vertex)
+            rel_pose_to_vertex_inv = self.graph.inverse_transform(*rel_pose_to_vertex)
+            cur_grid_transformed = self.cur_grid.copy()
+            cur_grid_transformed.transform(rel_pose_to_vertex_inv[0], rel_pose_to_vertex_inv[1], -rel_pose_to_vertex_inv[2])
+            corr_x, corr_y, corr_theta = self.graph.get_transform_to_vertex(vertex_id, cur_grid_transformed)
+            print('Require match:', require_match)
+            if corr_x is not None:
+                print('Old transform:', rel_pose_to_vertex)
+                corr_x_inv, corr_y_inv, corr_theta_inv = self.graph.inverse_transform(corr_x, corr_y, corr_theta)
+                x, y, theta = apply_pose_shift(rel_pose_to_vertex, corr_x_inv, corr_y_inv, corr_theta_inv)
+                print('Scan matching transform:', x, y, theta)
+                diff = np.sqrt((x - rel_pose_to_vertex[0]) ** 2 + (y - rel_pose_to_vertex[1]) ** 2)
+                print('Diff:', diff)
+                if diff < self.local_jump_threshold or not self.matched:
+                    print('\n\n\n Change to vertex {} by edge \n\n\n'.format(vertex_id))
+                    self.last_successful_match_time = self.current_stamp
+                    changed = True
+                    self.matched = True
+                    self.rel_pose_of_vcur = self.graph.inverse_transform(x, y, theta)
+                    matched_vertex_id = vertex_id
+                    matched_pose_on_edge = pose_on_edge
+                    break
+                else:
+                    print('Big jump! Ignore this match')
+                    self.log_diag('edge_match_rejected', jump=diff, threshold=self.local_jump_threshold,
+                                  nearest_vertex=vertex_id)
             else:
-                print('Big jump! Ignore this match')
+                print('Failed to match current cloud to vertex {}!'.format(vertex_id))
+
         if not changed and not require_match:
+            # Forced jump: use the nearest eligible neighbour.
+            pose_diff, vertex_id, pose_on_edge = candidates[0]
+            rel_pose_to_vertex = get_rel_pose(*self.rel_pose_of_vcur, *pose_on_edge)
             changed = True
-            print('\n\n\n Change to vertex {} by edge without matching\n\n\n'.format(nearest_vertex_id))
+            self.matched = False
+            print('\n\n\n Change to vertex {} by edge without matching\n\n\n'.format(vertex_id))
+            self.log_diag('forced_edge_jump', nearest_vertex=vertex_id, require_match=False)
             self.rel_pose_of_vcur = self.graph.inverse_transform(*rel_pose_to_vertex)
+            matched_vertex_id = vertex_id
+            matched_pose_on_edge = pose_on_edge
+
         if changed:
-            self.last_vertex_id = nearest_vertex_id
+            self.last_vertex_id = matched_vertex_id
             self.need_to_change_vcur = False
             self.last_vertex = self.graph.get_vertex(self.last_vertex_id)
             if self.rel_pose_vcur_to_loc is not None:
-                self.rel_pose_vcur_to_loc = apply_pose_shift(self.graph.inverse_transform(*pose_on_edge), *self.rel_pose_vcur_to_loc)
+                self.rel_pose_vcur_to_loc = apply_pose_shift(
+                    self.graph.inverse_transform(*matched_pose_on_edge), *self.rel_pose_vcur_to_loc)
             print('Reset rel_poses_stamped to time', self.current_stamp)
             self.rel_poses_stamped = [[self.current_stamp] + self.rel_pose_of_vcur]
-        else:
-            print('Failed to match current cloud to vertex {}!'.format(nearest_vertex_id))
+        elif require_match:
+            print('Failed to match current cloud to any edge neighbour among {}'.format(
+                [vid for _, vid, _ in candidates]))
 
         return changed
 
@@ -369,8 +472,15 @@ class TopoSLAMModel():
                                        *self.graph.get_vertex(v)['pose_for_visualization'])
             dx, dy, dtheta = get_rel_pose(x, y, theta, *self.rel_pose_of_vcur)
             dst = np.sqrt(dx ** 2 + dy ** 2)
-            if dst > self.drift_coef * (self.current_stamp - self.last_successful_match_time) + 10:
-                print('Vertex {} is too far to match'.format(v))
+            max_dst = self.drift_coef * (self.current_stamp - self.last_successful_match_time) + 10
+            max_dtheta = self.drift_coef_theta * (self.current_stamp - self.last_successful_match_time) + 0.3
+            abs_dtheta = abs(normalize(dtheta))
+            if dst > max_dst or abs_dtheta > max_dtheta:
+                reason = 'distance' if dst > max_dst else 'theta'
+                print('Vertex {} is too far to match (reason={}, dst={:.2f}/{:.2f}, dtheta={:.3f}/{:.3f})'.format(
+                    v, reason, dst, max_dst, abs_dtheta, max_dtheta))
+                self.log_diag('loc_reattach_rejected_distance', candidate=v, distance=dst,
+                              max_allowed=max_dst, dtheta=abs_dtheta, max_dtheta=max_dtheta, reason=reason)
                 continue
             print('v:', v)
             print('IoU between current state and ({}, {}) is {}'.format(vx, vy, iou))
@@ -379,7 +489,9 @@ class TopoSLAMModel():
             if iou > iou_threshold or self.need_to_change_vcur:
                 self.last_successful_match_time = localized_stamp
                 found_proper_vertex = True
+                self.matched = True
                 print('\n\n\n Change to vertex {} with coords ({}, {})\n\n\n'.format(v, vx, vy))
+                self.log_diag('loc_reattach_success', candidate=v, iou=iou)
                 #last_x, last_y, last_theta = self.last_vertex['pose_for_visualization']
                 if self.mode == 'mapping':
                     self.graph.add_edge(self.last_vertex_id, v, *pred_rel_pose_vcur_to_v)
@@ -397,7 +509,9 @@ class TopoSLAMModel():
         return False
 
     def add_new_vertex(self, vertex_ids, rel_poses):
+        self.fill_semantic(self.cur_grid, self.cur_cloud)
         new_vertex_id = self.graph.add_vertex(self.global_pose_for_visualization, self.cur_desc, self.cur_grid)
+        np.savez(os.path.join(self.path_to_save_logs, 'clouds', '{}.npz'.format(new_vertex_id)), self.cur_cloud)
         new_vertex = self.graph.get_vertex(new_vertex_id)
         pose_stamped, new_rel_pose_of_vcur = self.get_rel_pose_from_stamp(self.current_stamp)
         if self.last_vertex is not None:
@@ -424,6 +538,7 @@ class TopoSLAMModel():
             self.last_vertex_id = self.start_location
             self.need_to_change_vcur = False
             self.last_vertex = self.graph.get_vertex(self.start_location)
+            self.matched = True
             if self.start_local_pose is not None:
                 self.rel_pose_of_vcur = self.start_local_pose
                 self.rel_pose_vcur_to_loc = self.rel_pose_of_vcur
@@ -443,6 +558,7 @@ class TopoSLAMModel():
             rel_poses = localized_state['rel_poses']
             if vertex_ids is not None and len(vertex_ids) > 0:
                 print('Initially attached to vertex {} from localization'.format(vertex_ids[0]))
+                self.matched = True
                 self.last_vertex_id = vertex_ids[0]
                 self.need_to_change_vcur = False
                 self.last_vertex = self.graph.get_vertex(vertex_ids[0])
@@ -491,6 +607,7 @@ class TopoSLAMModel():
         if len(self.cur_desc.shape) == 1:
                 self.cur_desc = self.cur_desc[np.newaxis, :]
         # Project cloud into a grid
+        self.cur_cloud = cur_cloud
         self.cur_grid.update_from_cloud_and_transform(cur_cloud, x, y, -theta)
         if cur_curbs is not None:
             self.cur_grid.update_curbs_from_cloud(cur_curbs)
@@ -516,7 +633,7 @@ class TopoSLAMModel():
         self.rel_poses_stamped.append([self.current_stamp] + self.rel_pose_of_vcur)
 
     def update(self, global_pose_for_visualization, cur_odom_pose, img_front, img_back, cur_cloud, cur_curbs):
-        print('Update from stamp:', self.current_stamp)
+        # print('Update from stamp:', self.current_stamp)
         start_time = time.time()
         if self.odom_pose is None:
             self.odom_pose = cur_odom_pose
@@ -526,29 +643,29 @@ class TopoSLAMModel():
         # Update localizer and localized state
         self.process_observations(img_front, img_back, cur_cloud, cur_curbs, x, y, theta)
         self.global_pose_for_visualization = global_pose_for_visualization
-        self.localizer.update_current_state(self.global_pose_for_visualization, self.cur_desc, self.cur_grid, self.current_stamp)
+        self.localizer.update_current_state(self.global_pose_for_visualization, self.cur_cloud, self.cur_desc, self.cur_grid, self.current_stamp)
         if self.last_vertex is None:
             self.init_localization()
         self.localization_results = self.localizer.get_localized_state()
         # !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-        vertex_ids_matched_refined = []
-        rel_poses_refined = []
-        for i, v in enumerate(self.localization_results['vertex_ids_matched']):
-            true_rel_pose = get_rel_pose(*self.graph.get_vertex(v)['pose_for_visualization'],
-                                         *self.localization_results['global_pose_for_visualization'])
-            true_dst = np.sqrt(true_rel_pose[0] ** 2 + true_rel_pose[1] ** 2)
-            # print('v:', v)
-            # print('Pose of localization:', self.localization_results['global_pose_for_visualization'])
-            # print('Pose of v:', self.graph.get_vertex(v)['pose_for_visualization'])
-            # print('Pred rel pose:', self.localization_results['rel_poses'][i])
-            # print('True rel pose:', true_rel_pose)
-            if true_dst < 2 * self.max_edge_length:
-                vertex_ids_matched_refined.append(v)
-                rel_poses_refined.append(true_rel_pose)#self.localization_results['rel_poses'][i])
-            else:
-                print('Vertex {} is too far (distance is {}), remove it from localization'.format(v, true_dst))
-        self.localization_results['vertex_ids_matched'] = vertex_ids_matched_refined
-        self.localization_results['rel_poses'] = rel_poses_refined
+        # vertex_ids_matched_refined = []
+        # rel_poses_refined = []
+        # for i, v in enumerate(self.localization_results['vertex_ids_matched']):
+        #     true_rel_pose = get_rel_pose(*self.graph.get_vertex(v)['pose_for_visualization'],
+        #                                  *self.localization_results['global_pose_for_visualization'])
+        #     true_dst = np.sqrt(true_rel_pose[0] ** 2 + true_rel_pose[1] ** 2)
+        #     # print('v:', v)
+        #     # print('Pose of localization:', self.localization_results['global_pose_for_visualization'])
+        #     # print('Pose of v:', self.graph.get_vertex(v)['pose_for_visualization'])
+        #     # print('Pred rel pose:', self.localization_results['rel_poses'][i])
+        #     # print('True rel pose:', true_rel_pose)
+        #     if true_dst < 2 * self.max_edge_length:
+        #         vertex_ids_matched_refined.append(v)
+        #         rel_poses_refined.append(true_rel_pose)#self.localization_results['rel_poses'][i])
+        #     else:
+        #         print('Vertex {} is too far (distance is {}), remove it from localization'.format(v, true_dst))
+        # self.localization_results['vertex_ids_matched'] = vertex_ids_matched_refined
+        # self.localization_results['rel_poses'] = rel_poses_refined
         # !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
         if self.localization_results is not None and self.localization_results['timestamp'] is not None:
             self.localization_time = self.localization_results['timestamp']
@@ -592,6 +709,8 @@ class TopoSLAMModel():
         dst = np.sqrt(self.rel_pose_of_vcur[0] ** 2 + self.rel_pose_of_vcur[1] ** 2)
         if not inside_vcur or iou < self.iou_threshold or dst > self.max_edge_length:
             self.need_to_change_vcur = True
+            reason = 'outside' if not inside_vcur else ('low_iou' if iou < self.iou_threshold else 'too_far')
+            self.log_diag('need_vertex_change', reason=reason, inside=inside_vcur, dst=dst)
             if not inside_vcur:
                 print('Moved outside vcur {}'.format(self.last_vertex_id))
             elif iou < self.iou_threshold:
@@ -603,7 +722,7 @@ class TopoSLAMModel():
             # !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
             if not changed:
                 print('Localization dt:', self.current_stamp - self.localization_time)
-                if self.current_stamp - self.localization_results['timestamp'] < 5:
+                if self.current_stamp - self.localization_time < 5:
                     #print('Localized stamp:', self.localizer.localized_stamp)
                     changed = self.reattach_by_localization(self.cur_iou, self.localization_results['timestamp'])
                     print('Changed from localization:', changed)
@@ -623,10 +742,13 @@ class TopoSLAMModel():
                         self.add_new_vertex([], [])
                     else:
                         print('No recent localization')
+                        self.log_diag('no_recent_localization',
+                                      loc_age=self.current_stamp - self.localization_results['timestamp'])
                     #     self.reattach_by_edge(require_match=False)
             # !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
             if not changed and self.mode == 'localization':
                 self.reattach_by_edge(require_match=False)
+        self.log_pose_error()
         print('Update done at {} seconds, now is {}'.format(time.time() - start_time, rospy.Time.now().to_sec()))
 
     def save_graph(self):

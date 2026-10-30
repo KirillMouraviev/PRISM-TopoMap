@@ -12,9 +12,8 @@ from scipy.spatial.transform import Rotation
 from skimage.io import imread, imsave
 from opr.pipelines.registration import PointcloudRegistrationPipeline, RansacGlobalRegistrationPipeline, Feature2DGlobalRegistrationPipeline
 from opr.datasets.augmentations import DefaultHM3DImageTransform
-from local_grid import load_local_grid
+from local_grid import load_local_grid, load_legacy_grid_png
 from utils import get_rel_pose
-
 from memory_profiler import profile
 
 class TopologicalGraph():
@@ -49,8 +48,34 @@ class TopologicalGraph():
         self.vertices = j['vertices']
         self.adj_lists = j['edges']
         for i in range(len(self.vertices)):
-            #grid = np.load(os.path.join(input_path, '{}_grid.npz'.format(i)))['arr_0']
-            self.vertices[i]['grid'] = load_local_grid(os.path.join(input_path, str(i)))
+            subdir_path = os.path.join(input_path, str(i))
+            legacy_png_path = os.path.join(input_path, '{}_grid.png'.format(i))
+            legacy_npz_path = os.path.join(input_path, '{}_grid.npz'.format(i))
+            if os.path.isdir(subdir_path) and os.path.exists(os.path.join(subdir_path, 'metadata.yaml')):
+                self.vertices[i]['grid'] = load_local_grid(subdir_path)
+            elif os.path.exists(legacy_png_path):
+                self.vertices[i]['grid'] = load_legacy_grid_png(
+                    legacy_png_path,
+                    resolution=self.grid_resolution,
+                    radius=self.grid_radius,
+                    max_range=self.max_grid_range,
+                )
+            elif os.path.exists(legacy_npz_path):
+                occupancy = np.load(legacy_npz_path)['arr_0']
+                import tempfile
+                tmp_path = os.path.join(tempfile.gettempdir(), f'legacy_grid_{i}.png')
+                imsave(tmp_path, occupancy.astype(np.uint8))
+                self.vertices[i]['grid'] = load_legacy_grid_png(
+                    tmp_path,
+                    resolution=self.grid_resolution,
+                    radius=self.grid_radius,
+                    max_range=self.max_grid_range,
+                )
+            else:
+                raise FileNotFoundError(
+                    f'No grid found for vertex {i} in {input_path} '
+                    f'(tried {subdir_path}, {legacy_png_path}, {legacy_npz_path})'
+                )
             #img_front = imread(os.path.join(input_path, '{}_img_front.png'.format(i)))
             #self.vertices[i]['img_front'] = img_front
             #img_back = imread(os.path.join(input_path, '{}_img_back.png'.format(i)))
@@ -75,23 +100,24 @@ class TopologicalGraph():
 
     def get_transform_to_vertex(self, vertex_id, grid):
         print('Trying to match to vertex {}'.format(vertex_id))
-        #return get_rel_pose(*self.global_pose_for_visualization, *self.vertices[vertex_id]['pose_for_visualization'])
         cand_grid = self.vertices[vertex_id]['grid']
         cand_grid_tensor = torch.Tensor(cand_grid.layers['occupancy']).to(self.device)
         ref_grid_tensor = torch.Tensor(grid.layers['occupancy']).to(self.device)
-        #print('                Ref grid:', grid.max())
-        #print('                Cand grid:', cand_grid.max())
         start_time = time.time()
-        transform, score = self.inline_registration_pipeline.infer(ref_grid_tensor, cand_grid_tensor, verbose=False)
+        transform, score = self.inline_registration_pipeline.infer(
+            ref_grid_tensor,
+            grid.layers.get('semantic', []),
+            cand_grid_tensor,
+            cand_grid.layers.get('semantic', []),
+            verbose=False)
+        print('Transform:', transform)
         print('Matching time:', time.time() - start_time)
-        # print('TRANSFORM:', transform)
-        # print('Score:', score)
-        if score > self.inline_registration_score_threshold:
+        print('Score:', score)
+        if transform is not None and score is not None and score > self.inline_registration_score_threshold:
             tf_matrix = cand_grid.get_tf_matrix_xy(*transform)
             x = tf_matrix[0, 3]
             y = tf_matrix[1, 3]
             _, __, theta = Rotation.from_matrix(tf_matrix[:3, :3]).as_rotvec()
-            # print('X Y THETA:', x, y, theta)
             return x, y, theta
         return None, None, None
 

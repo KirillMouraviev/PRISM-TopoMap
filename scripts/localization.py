@@ -12,18 +12,19 @@ import sys
 rp = rospkg.RosPack()
 path_to_prism_topomap = rp.get_path('prism_topomap')
 sys.path.append(os.path.join(path_to_prism_topomap, 'submodules'))
-from toposlam_scanmatching.utils import Maps
-from toposlam_scanmatching.scan_matching_utils import match_grids
 
 class Localizer():
     def __init__(self, graph, registration_model,
-                 registration_score_threshold=0.6, top_k=5, save_dir=None):
+                 registration_score_threshold=0.6, top_k=5, save_dir=None,
+                 semantic_inference=None):
         self.graph = graph
         self.registration_pipeline = registration_model
         self.registration_score_threshold = registration_score_threshold
         self.top_k = top_k
         self.descriptor = None
         self.grid = None
+        self.cloud = None
+        self.semantic_inference = semantic_inference
         self.global_pose_for_visualization = None
         self.stamp = None
         self.localized_x = None
@@ -42,15 +43,16 @@ class Localizer():
         self.mutex = Lock()
         self.device = torch.device('cuda:0')
 
-    def save_reg_test_data(self, vertex_ids, transforms, pr_scores, reg_scores, save_dir):
+    def save_reg_test_data(self, ref_grid, start_global_pose, vertex_ids, transforms, pr_scores, reg_scores, reg_test_ids, save_dir):
         if not os.path.exists(save_dir):
             os.mkdir(save_dir)
         save_dir_ref_grid = os.path.join(save_dir, 'ref_grid')
-        self.grid.save(save_dir_ref_grid)
+        ref_grid.save(save_dir_ref_grid)
+        # np.savez(os.path.join(save_dir, 'ref_cloud.npz'), self.cloud)
         #print('Mean of the ref cloud:', self.localized_cloud[:, :3].mean())
         tf_data = []
-        if self.global_pose_for_visualization is not None:
-            gt_pose_data = [list(self.global_pose_for_visualization)]
+        if start_global_pose is not None:
+            gt_pose_data = [list(start_global_pose)]
         else:
             print('No global pose for visualization to save reg test data!')
             return
@@ -73,12 +75,15 @@ class Localizer():
         np.savetxt(os.path.join(save_dir, 'transforms.txt'), np.array(tf_data))
         np.savetxt(os.path.join(save_dir, 'pr_scores.txt'), np.array(pr_scores))
         np.savetxt(os.path.join(save_dir, 'reg_scores.txt'), np.array(reg_scores))
+        np.savetxt(os.path.join(save_dir, 'reg_test_ids.txt'), np.array(reg_test_ids).astype(int))
 
-    def update_current_state(self, global_pose_for_visualization, cur_desc, cur_grid, timestamp):
+    def update_current_state(self, global_pose_for_visualization, cur_cloud, cur_desc, cur_grid, timestamp):
         self.mutex.acquire()
+        print('Update current state')
         self.global_pose_for_visualization = global_pose_for_visualization
         self.descriptor = cur_desc
         self.grid = cur_grid
+        self.cloud = cur_cloud
         self.stamp = timestamp
         self.mutex.release()
 
@@ -98,6 +103,7 @@ class Localizer():
             'global_pose_for_visualization': self.global_pose_for_visualization, 
             'descriptor': self.descriptor.copy(), 
             'grid': self.grid.copy(), 
+            'cloud': None if self.cloud is None else self.cloud.copy(),
             'timestamp': self.stamp
             }
         self.mutex.release()
@@ -127,52 +133,41 @@ class Localizer():
         start_stamp = current_state['timestamp']
         start_grid = current_state['grid']
         start_desc = current_state['descriptor']
-        #print('Position at start:', self.global_pose_for_visualization)
+        start_cloud = current_state.get('cloud')
+        if start_grid is not None and self.semantic_inference is not None and start_cloud is not None:
+            _, _, _, probabilities = self.semantic_inference.predict(start_cloud)
+            start_grid.update_semantic_from_cloud(start_cloud, probabilities)
         if start_grid is not None:
             dists, pred_i = self.graph.index.search(start_desc, self.top_k)
-            #print('Place recognition time:', t4 - t3)
             pr_scores = dists[0]
             pred_i = pred_i[0]
-            # print('Pred i:', pred_i)
             pred_tf = []
             pred_i_filtered = []
             reg_scores = []
+            reg_test_ids = []
             for i, idx in enumerate(pred_i):
-                #print('Stamp {}, vertex id {}'.format(stamp, idx))
                 if idx < 0:
                     continue
                 cand_vertex_dict = self.graph.get_vertex(idx)
                 cand_grid = cand_vertex_dict['grid'].copy()
                 grid_copy = start_grid.copy()
-                cand_maps = Maps(height=cand_grid.layers['height_map'],
-                                 occupancy=cand_grid.layers['occupancy'],
-                                 density_map=cand_grid.layers['density_map'],
-                                 curbs=cand_grid.layers['curbs'])
-                ref_maps = Maps(height=grid_copy.layers['height_map'],
-                                 occupancy=grid_copy.layers['occupancy'],
-                                 density_map=grid_copy.layers['density_map'],
-                                 curbs=grid_copy.layers['curbs'])
                 start_time = time.time()
-                T = match_grids(cand_maps, ref_maps)
-                # print('Matching time:', time.time() - start_time)
-                # print('Scan matching transform new:', T)
-                rotation_matrix = np.eye(3)
-                rotation_matrix[:2, :2] = T[:2, :2]
-                x, y = T[:2, 2]
-                trans_j, trans_i = T[:2, 2]
-                _, __, rot_angle = Rotation.from_matrix(rotation_matrix[:3, :3]).as_rotvec()
-                transform = (trans_i, trans_j, rot_angle)
-                # print('Trans i trans j rot angle:', transform)
-                score = self.registration_pipeline.get_fitness(grid_copy.layers['occupancy'],
-                                                               cand_grid.layers['occupancy'], 
-                                                               transform)
-                cand_grid_tensor = torch.Tensor(cand_grid.layers['occupancy']).to(self.device)
                 ref_grid_tensor = torch.Tensor(grid_copy.layers['occupancy']).to(self.device)
-                transform_old, score_old = self.registration_pipeline.infer(ref_grid_tensor, cand_grid_tensor, verbose=False)
-                # print('Transform old:', transform_old)
+                cand_grid_tensor = torch.Tensor(cand_grid.layers['occupancy']).to(self.device)
+                reg_test_ids.append(self.registration_pipeline.cnt)
+                transform, score = self.registration_pipeline.infer(
+                    ref_grid_tensor,
+                    grid_copy.layers.get('semantic', []),
+                    cand_grid_tensor,
+                    cand_grid.layers.get('semantic', []),
+                    verbose=False)
+                print('Semantic scan matching time:', time.time() - start_time)
+                if transform is None or score is None:
+                    transform = None
+                    score = 0.0
                 reg_scores.append(score)
                 print('Registration score of vertex {} is {}'.format(idx, score))
-                if score < self.registration_score_threshold:
+                if transform is None or score < self.registration_score_threshold:
                     pred_i_filtered.append(-1)
                     pred_tf.append([0, 0, 0, 0, 0, 0])
                 else:
@@ -180,14 +175,13 @@ class Localizer():
                     pred_i_filtered.append(idx)
                     tf_rotation = Rotation.from_matrix(tf_matrix[:3, :3]).as_rotvec()
                     tf_translation = tf_matrix[:3, 3]
-                    # print('Tf translation and rotation:', tf_translation, tf_rotation)
                     pred_tf.append(list(tf_rotation) + list(tf_translation))
             if self.tests_dir is not None:
                 save_dir = os.path.join(self.tests_dir, 'test_{}'.format(self.cnt))
                 self.cnt += 1
                 if not os.path.exists(save_dir):
                     os.mkdir(save_dir)
-                self.save_reg_test_data(pred_i, pred_tf, pr_scores, reg_scores, save_dir)
+                self.save_reg_test_data(start_grid, start_global_pose, pred_i, pred_tf, pr_scores, reg_scores, reg_test_ids, save_dir)
             vertex_ids_pr_unmatched = [idx for idx in pred_i if idx not in pred_i_filtered]
             #print('Matched indices:', [idx for idx in vertex_ids_pr if idx >= 0])
             #print('Unmatched indices:', vertex_ids_pr_unmatched)

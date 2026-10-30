@@ -614,9 +614,7 @@ class PRISMTopomapNode():
     def gt_odom_pose_callback(self, msg):
         x, y = msg.pose.pose.position.x, msg.pose.pose.position.y
         orientation = msg.pose.pose.orientation
-        print('Orientation:', orientation)
         _, __, theta = tf.transformations.euler_from_quaternion([orientation.x, orientation.y, orientation.z, orientation.w])
-        print('x y theta gt: {} {} {}'.format(x, y, theta))
         self.gt_poses.append([msg.header.stamp.to_sec(), [x, y, theta]])
 
     def odom_callback(self, msg):
@@ -728,14 +726,16 @@ class PRISMTopomapNode():
         if self.publish_gt_map_flag:
             self.results_publisher.publish_gt_map()
         dt = (rospy.Time.now() - msg.header.stamp).to_sec()
-        print('Msg lag at start is {} seconds'.format(dt))
-        if dt > 0.5 or dt < -0.5:
-            return
+        # print('Msg lag at start is {} seconds'.format(dt))
         if dt > 10000:
             print('Too big message time difference. Probably you have wrong use_sim_time ROS param value')
             return
         if dt < -1000:
             print('Too big negative message time difference. Is your clock published?')
+            return
+        # Offline bag replay: allow larger lag so a brief odom gap does not permanently stall.
+        if dt > 1.0 or dt < -0.5:
+            print("Unsynchronized. Reject this point cloud")
             return
         cur_global_pose, cur_odom_pose, cur_img_front, cur_img_back, cur_curbs = self.get_sync_pose_and_images(msg.header.stamp.to_sec(),
             [self.gt_poses, self.odom_poses, self.rgb_buffer_front, self.rgb_buffer_back, self.curb_clouds],
@@ -747,7 +747,7 @@ class PRISMTopomapNode():
                 [True, True, False, False, False])
             rospy.sleep(1e-2)
             dt = (rospy.Time.now() - msg.header.stamp).to_sec()
-            if dt > 0.5:
+            if dt > 2.0:
                 print('Waiting for sync pose and images timed out!')
                 return
         # if cur_curbs is None:

@@ -5,6 +5,10 @@ import faiss
 import opr
 from opr.pipelines.registration import PointcloudRegistrationPipeline, RansacGlobalRegistrationPipeline
 from opr.pipelines.registration.occupancy_grid import Feature2DGlobalRegistrationPipeline
+from opr.pipelines.registration.semantic_occupancy_grid import (
+    Feature2DGlobalRegistrationPipeline as SemanticFeature2DGlobalRegistrationPipeline,
+    OUTDOOR_STATIC_CLASSES,
+)
 from opr.models.place_recognition import MinkLoc3D
 import os
 
@@ -44,6 +48,17 @@ def get_registration_model(config, save_dir=None):
                                                    min_matches=config['min_matches'],
                                                    outlier_thresholds=config['outlier_thresholds'],
                                                    save_dir=save_dir)
+    elif reg_model_type == 'feature2d_semantic':
+        return SemanticFeature2DGlobalRegistrationPipeline(
+            voxel_downsample_size=config['voxel_downsample_size'],
+            detector_type=config['detector_type'],
+            min_matches=config['min_matches'],
+            outlier_thresholds=config['outlier_thresholds'],
+            fitness_threshold=config.get('fitness_threshold', 0.6),
+            ransac_iterations=config.get('ransac_iterations', 1000),
+            distance_threshold=config.get('distance_threshold', 10.0),
+            semantic_classes=config.get('semantic_classes', OUTDOOR_STATIC_CLASSES),
+            save_dir=save_dir)
     elif reg_model_type == 'geotransformer':
         REGISTRATION_MODEL_CONFIG_PATH = config['model_config_path']
         REGISTRATION_WEIGHTS_PATH = config['weights_path']
@@ -58,4 +73,4 @@ def get_registration_model(config, save_dir=None):
         return RansacGlobalRegistrationPipeline(voxel_downsample_size=config['voxel_downsample_size'])
     else:
         print('Invalid registration model type {}. \
-              Parameter `model` for `scan_matching` must be `feature2d`, `geotransformer`, or `icp`'.format(reg_model_type))  
+              Parameter `model` for `scan_matching` must be `feature2d`, `feature2d_semantic`, `geotransformer`, or `icp`'.format(reg_model_type))  

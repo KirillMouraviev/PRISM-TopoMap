@@ -1,0 +1,45 @@
+<launch>
+  <arg name="track_name"/>
+  <arg name="path_to_load_graph" default="/media/kirill/7CM/gazel_maps/topo_graph_from_route1_auto"/>
+  <arg name="path_to_save_logs" default="/home/kirill/TopoSLAM/cursor_analysis/prism_logs"/>
+  <arg name="config_file" default="gazel_localization_srlio.yaml"/>
+  <arg name="is_loaded" default="false"/>
+
+  <node pkg="prism_topomap" type="prism_topomap_node.py" name="prism_topomap_node" output="screen">
+    <param name="path_to_load_graph" value="$(arg path_to_load_graph)"/>
+    <param name="path_to_save_logs" value="$(arg path_to_save_logs)"/>
+    <param name="config_file" value="$(arg config_file)"/>
+    <param name="diag_log_path" value="/home/kirill/TopoSLAM/cursor_analysis/logs/prism_diag.log"/>
+  </node>
+
+  <node pkg="prism_topomap" type="tf_manager.py" name="gt_odom_from_tf">
+    <param name="publish_odom_from_tf" value="true"/>
+    <param name="source_frame" value="odom"/>
+    <param name="target_frame" value="base_link"/>
+  </node>
+
+  <node pkg="prism_topomap" type="tf_manager.py" name="lio_odom_to_plane">
+    <param name="publish_odom_from_tf" value="true"/>
+    <param name="source_frame" value="odom"/>
+    <param name="target_frame" value="laser_odom"/>
+    <remap from="/odom_gt" to="/odom_srlio"/>
+  </node>
+
+  <node pkg="tf" type="static_transform_publisher" name="tf_gkv_to_odom_start" args="-1364.4 429.3 -3.9 0.002 0 -0.775 0.632 odom odom_start 100"/>
+  <node pkg="tf" type="static_transform_publisher" name="tf_odom_start_to_lidar" args="3.105 0.001 2.212 -0.003 0.1 0.0 0.995 odom_start camera_init 100"/>
+
+  <node pkg="hector_trajectory_server" type="hector_trajectory_server" name="trajectory_estimated">
+    <param name="target_frame_name" value="odom"/>
+    <param name="source_frame_name" value="current_state"/>
+    <remap from="/trajectory" to="/trajectory_estimated"/>
+  </node>
+
+  <node pkg="hector_trajectory_server" type="hector_trajectory_server" name="trajectory_gt">
+    <param name="target_frame_name" value="odom"/>
+    <param name="source_frame_name" value="base_link"/>
+    <remap from="/trajectory" to="/trajectory_gt"/>
+  </node>
+
+  <node pkg="image_transport" type="republish" name="image_transport_center" args="compressed in:=/camera/center/image_raw raw out:=/camera/center/image_raw"/>
+  <node pkg="image_transport" type="republish" name="image_transport_back" args="compressed in:=/camera/right/image_raw raw out:=/camera/right/image_raw"/>
+</launch>

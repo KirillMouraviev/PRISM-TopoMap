@@ -15,6 +15,7 @@ class LocalGrid:
                  floor_height=0.0, ceil_height=1.0,
                  obstacles_attenuation=0.9,
                  curbs_attenuation=0.99,
+                 semantic_probability_threshold=0.3,
                  layer_names=['curbs', 'occupancy', 'height_map', 'density_map', 'density_map_cur'],
                  save_dir=None):
         self.resolution = resolution
@@ -24,16 +25,21 @@ class LocalGrid:
         self.ceil_height = ceil_height
         self.obstacles_attenuation = obstacles_attenuation
         self.curbs_attenuation = curbs_attenuation
+        self.semantic_probability_threshold = semantic_probability_threshold
         self.layer_names = layer_names
         self.grid_size = 2 * int(radius / resolution)
         self.layers = {}
         for layer_name in self.layer_names:
+            if layer_name == 'semantic':
+                self.layers[layer_name] = []
+                continue
             if layer_name == 'height_map':
                 dtype = np.float32
             else:
                 dtype = np.uint8
             self.layers[layer_name] = np.zeros((self.grid_size, self.grid_size), dtype=dtype)
         self.save_dir = save_dir
+        self._semantic_stamp = None
         if self.save_dir is not None and not os.path.exists(save_dir):
             os.mkdir(save_dir)
 
@@ -43,10 +49,16 @@ class LocalGrid:
                               floor_height=self.floor_height, ceil_height=self.ceil_height,
                               layer_names=self.layer_names,
                               obstacles_attenuation=self.obstacles_attenuation, curbs_attenuation=self.curbs_attenuation,
+                              semantic_probability_threshold=self.semantic_probability_threshold,
                               save_dir=self.save_dir)
         grid_copy.layers = {}
         for layer_name in self.layer_names:
-            grid_copy.layers[layer_name] = self.layers[layer_name].copy()
+            layer = self.layers[layer_name]
+            if layer_name == 'semantic' and isinstance(layer, list):
+                grid_copy.layers[layer_name] = [np.array(pts, copy=True) for pts in layer]
+            else:
+                grid_copy.layers[layer_name] = layer.copy()
+        grid_copy._semantic_stamp = self._semantic_stamp
         return grid_copy
 
     def raycast_grid(self, n_rays=1000, center_point=None):
@@ -104,6 +116,51 @@ class LocalGrid:
         if 'height_map' in self.layer_names:
             self.layers['height_map'] = np.zeros((self.grid_size, self.grid_size))
             np.maximum.at(self.layers['height_map'], (points_ij_all[:, 0], points_ij_all[:, 1]), points_xyz[mask][:, 2])
+        if 'semantic' in self.layer_names:
+            self.layers['semantic'] = []
+            self._semantic_stamp = None
+
+    def update_semantic_from_cloud(self, points_xyz, probabilities):
+        """Fill the semantic layer from SalsaNext class probabilities (same frame as occupancy)."""
+        if 'semantic' not in self.layer_names:
+            return
+        points_xyz = np.asarray(points_xyz)
+        probabilities = np.asarray(probabilities)
+        n = min(points_xyz.shape[0], probabilities.shape[0])
+        points_xyz = points_xyz[:n, :3]
+        probabilities = probabilities[:n]
+        valid = ~np.isnan(points_xyz).any(axis=1)
+        points_xyz = points_xyz[valid]
+        probabilities = probabilities[valid]
+        in_range = ((points_xyz[:, 0] > -self.max_range) * (points_xyz[:, 0] < self.max_range) *
+                    (points_xyz[:, 1] > -self.max_range) * (points_xyz[:, 1] < self.max_range))
+        points_xyz = points_xyz[in_range]
+        probabilities = probabilities[in_range]
+        points_with_probs = np.hstack([points_xyz, probabilities])
+        points_with_probs = remove_floor_and_ceil(
+            points_with_probs, floor_height=self.floor_height, ceil_height=self.ceil_height)
+        if points_with_probs.shape[0] == 0:
+            self.layers['semantic'] = [np.zeros((0, 2), dtype=int) for _ in range(probabilities.shape[1])]
+            return
+        probabilities = points_with_probs[:, 3:]
+        points_xyz_obstacles = points_with_probs[:, :3]
+        grid_radius = int(self.radius / self.resolution)
+        points_ij_obstacles = np.round(points_xyz_obstacles[:, :2] / self.resolution).astype(int) + \
+                            [grid_radius, grid_radius]
+        in_grid = ((points_ij_obstacles[:, 0] >= 0) * (points_ij_obstacles[:, 0] < self.grid_size) *
+                   (points_ij_obstacles[:, 1] >= 0) * (points_ij_obstacles[:, 1] < self.grid_size))
+        points_ij_obstacles = points_ij_obstacles[in_grid]
+        probabilities = probabilities[in_grid]
+        semantic = []
+        n_classes = probabilities.shape[1]
+        for cls in range(n_classes):
+            pts = points_ij_obstacles[probabilities[:, cls] > self.semantic_probability_threshold]
+            if pts.shape[0] > 0:
+                pts = np.unique(pts, axis=0)
+            else:
+                pts = np.zeros((0, 2), dtype=int)
+            semantic.append(pts)
+        self.layers['semantic'] = semantic
 
     def update_curbs_from_cloud(self, points_xyz):
         index = np.isnan(points_xyz).any(axis=1)
@@ -138,9 +195,24 @@ class LocalGrid:
         tf_matrix_shifted = minus8 @ tf_matrix @ plus8
         return warpAffine(grid, tf_matrix_shifted[:2], grid.shape)
 
+    def _transform_semantic(self, semantic_layers, x, y, theta):
+        transformed = []
+        for pts in semantic_layers:
+            mask = np.zeros((self.grid_size, self.grid_size), dtype=np.uint8)
+            pts = np.asarray(pts)
+            if pts.size > 0:
+                mask[pts[:, 0], pts[:, 1]] = 1
+            mask_t = self.get_transformed_grid(mask, x, y, theta)
+            transformed.append(np.argwhere(mask_t > 0))
+        return transformed
+
     def transform(self, x, y, theta):
         for layer_name in self.layer_names:
-            self.layers[layer_name] = self.get_transformed_grid(self.layers[layer_name], x, y, theta)
+            if layer_name == 'semantic':
+                if isinstance(self.layers[layer_name], list):
+                    self.layers[layer_name] = self._transform_semantic(self.layers[layer_name], x, y, theta)
+            else:
+                self.layers[layer_name] = self.get_transformed_grid(self.layers[layer_name], x, y, theta)
 
     def is_inside(self, x, y, theta):
         i = int((x + self.radius) / self.resolution)
@@ -199,16 +271,23 @@ class LocalGrid:
         if not os.path.exists(save_dir):
             os.mkdir(save_dir)
         for layer_name in self.layers:
-            # print(layer_name, self.layers[layer_name].sum())
+            if layer_name == 'semantic':
+                arrays = []
+                for pts in self.layers[layer_name]:
+                    pts = np.asarray(pts)
+                    if pts.size == 0:
+                        pts = np.zeros((0, 2), dtype=np.int32)
+                    arrays.append(pts.astype(np.int32))
+                np.savez(os.path.join(save_dir, 'semantic.npz'), *arrays)
+                continue
             if layer_name == 'height_map':
                 self.layers[layer_name] = self.layers[layer_name].astype(np.float32)
-            else:
-                self.layers[layer_name] = self.layers[layer_name].astype(np.uint8)
-            if layer_name == 'height_map':
-                # self.layers[layer_name] = np.clip(self.layers[layer_name], self.floor_height, self.ceil_height)
                 np.savez(os.path.join(save_dir, '{}.npz'.format(layer_name)), self.layers[layer_name])
             else:
-                # print(layer_name, self.layers[layer_name].shape, self.layers[layer_name].dtype)
+                layer = self.layers[layer_name]
+                if not isinstance(layer, np.ndarray) or layer.ndim != 2:
+                    continue
+                self.layers[layer_name] = layer.astype(np.uint8)
                 imsave(os.path.join(save_dir, '{}.png'.format(layer_name)), self.layers[layer_name])
         metadata = {
             'layer_names': self.layer_names,
@@ -218,30 +297,59 @@ class LocalGrid:
             'floor_height': self.floor_height,
             'ceil_height': self.ceil_height,
             'obstacles_attenuation': self.obstacles_attenuation,
-            'curbs_attenuation': self.curbs_attenuation
+            'curbs_attenuation': self.curbs_attenuation,
+            'semantic_probability_threshold': self.semantic_probability_threshold,
         }
         fout = open(os.path.join(save_dir, 'metadata.yaml'), 'w')
         yaml.dump(metadata, fout, default_flow_style=False)
         fout.close()
 
 def load_local_grid(save_dir):
-    fin = open(os.path.join(save_dir, 'metadata.yaml'), 'r')
-    metadata = yaml.safe_load(fin)
-    fin.close()
+    if os.path.exists(os.path.join(save_dir, 'metadata.yaml')):
+        fin = open(os.path.join(save_dir, 'metadata.yaml'), 'r')
+        metadata = yaml.safe_load(fin)
+        fin.close()
+        grid = LocalGrid(
+            layer_names=metadata['layer_names'],
+            resolution = metadata['resolution'],
+            radius = metadata['radius'],
+            max_range = metadata['max_range'],
+            floor_height = metadata['floor_height'],
+            ceil_height = metadata['ceil_height'],
+            obstacles_attenuation = metadata['obstacles_attenuation'],
+            curbs_attenuation = metadata['curbs_attenuation'],
+            semantic_probability_threshold=metadata.get('semantic_probability_threshold', 0.3),
+        )
+        for layer_name in metadata['layer_names']:
+            if layer_name == 'semantic':
+                semantic_path = os.path.join(save_dir, 'semantic.npz')
+                if os.path.exists(semantic_path):
+                    data = np.load(semantic_path, allow_pickle=True)
+                    keys = sorted(data.files, key=lambda s: int(s.split('_')[-1]))
+                    grid.layers[layer_name] = [np.asarray(data[k]) for k in keys]
+                else:
+                    grid.layers[layer_name] = []
+            elif layer_name == 'height_map':
+                grid.layers[layer_name] = np.load(os.path.join(save_dir, '{}.npz'.format(layer_name)))['arr_0']
+            else:
+                png_path = os.path.join(save_dir, '{}.png'.format(layer_name))
+                if os.path.exists(png_path):
+                    grid.layers[layer_name] = imread(png_path)
+        return grid
+    raise FileNotFoundError(f'No metadata.yaml in {save_dir}')
+
+
+def load_legacy_grid_png(png_path, resolution=0.25, radius=50.0, max_range=50.0):
+    """Load legacy flat-format graph grid (single occupancy PNG per vertex)."""
+    occupancy = imread(png_path)
+    layer_names = ['occupancy', 'density_map', 'height_map']
     grid = LocalGrid(
-        layer_names=metadata['layer_names'],
-        resolution = metadata['resolution'],
-        radius = metadata['radius'],
-        max_range = metadata['max_range'],
-        floor_height = metadata['floor_height'],
-        ceil_height = metadata['ceil_height'],
-        obstacles_attenuation = metadata['obstacles_attenuation'],
-        curbs_attenuation = metadata['curbs_attenuation']
+        resolution=resolution,
+        radius=radius,
+        max_range=max_range,
+        layer_names=layer_names,
     )
-    for layer_name in metadata['layer_names']:
-        if layer_name == 'height_map':
-            grid.layers[layer_name] = np.load(os.path.join(save_dir, '{}.npz'.format(layer_name)))['arr_0']
-        else:
-            grid.layers[layer_name] = imread(os.path.join(save_dir, '{}.png'.format(layer_name)))
-        # print(layer_name, grid.layers[layer_name].shape, grid.layers[layer_name].sum())
+    grid.layers['occupancy'] = occupancy.astype(np.uint8)
+    grid.layers['density_map'] = (occupancy > 0).astype(np.uint8) * 10
+    grid.layers['height_map'] = np.zeros(occupancy.shape, dtype=np.float32)
     return grid
