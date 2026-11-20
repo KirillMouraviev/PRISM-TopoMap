@@ -1,74 +1,50 @@
+from pathlib import Path
+
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
+from launch_ros.parameter_descriptions import ParameterValue
+
 
 def generate_launch_description():
-    return LaunchDescription([
-        # Launch arguments
-        DeclareLaunchArgument(
-            'path_to_gt_map',
-            default_value='',
-            description='Path to ground truth map'
-        ),
-        DeclareLaunchArgument(
-            'path_to_save_graph',
-            default_value='/home/kirill/TopoSLAM/toposlam_ws/src/simple_toposlam_model/graph_jsons_new/scout_rosbag',
-            description='Path to save graph'
-        ),
-        DeclareLaunchArgument(
-            'path_to_save_logs',
-            default_value='/home/kirill/TopoSLAM/toposlam_ws/data/prism_topomap_logs',
-            description='Path to save logs'
-        ),
-        DeclareLaunchArgument(
-            'config_file',
-            default_value='scout_rosbag.yaml',
-            description='Configuration file name'
-        ),
+    output_dir = Path.home() / 'prism_topomap_output' / 'scout_rosbag'
+    use_sim_time = ParameterValue(LaunchConfiguration('use_sim_time'), value_type=bool)
 
-        # Nodes
+    return LaunchDescription([
+        DeclareLaunchArgument('path_to_gt_map', default_value=''),
+        DeclareLaunchArgument('path_to_save_graph', default_value=str(output_dir / 'graph')),
+        DeclareLaunchArgument('path_to_save_logs', default_value=str(output_dir / 'logs')),
+        DeclareLaunchArgument('config_file', default_value='scout_rosbag.yaml'),
+        DeclareLaunchArgument(
+            'use_sim_time',
+            default_value='true',
+            description='Use the /clock topic from ros2 bag play --clock',
+        ),
         Node(
             package='prism_topomap',
             executable='prism_topomap_node',
-            name='prism_topomap_node',
             output='screen',
             parameters=[{
-                'path_to_gt_map': LaunchConfiguration('path_to_gt_map'),
+                'path_to_gt_map': ParameterValue(
+                    LaunchConfiguration('path_to_gt_map'), value_type=str
+                ),
                 'path_to_save_graph': LaunchConfiguration('path_to_save_graph'),
+                'path_to_save_logs': LaunchConfiguration('path_to_save_logs'),
                 'config_file': LaunchConfiguration('config_file'),
-            }]
+                'use_sim_time': use_sim_time,
+            }],
         ),
-        
         Node(
             package='prism_topomap',
-            executable='tf_to_odom',
+            executable='tf_manager',
             name='odometry_publisher',
-            output='screen'
+            output='screen',
+            parameters=[{
+                'publish_odom_from_tf': True,
+                'source_frame': 'map',
+                'target_frame': 'base_footprint',
+                'use_sim_time': use_sim_time,
+            }],
         ),
-
-        # Commented out static transform publisher
-        # Node(
-        #     package='tf2_ros',
-        #     executable='static_transform_publisher',
-        #     name='tf_base_to_lidar',
-        #     arguments=['-0.300', '0.014', '0.883', '-0.008', '0.004', '-0.008', '1.000', 'base_link', 'velodyne']
-        # ),
-
-        # Commented out image republisher for zed camera
-        # Node(
-        #     package='image_transport',
-        #     executable='republish',
-        #     name='decompress_front_image',
-        #     arguments=['compressed', 'in:=/zed_node/left/image_rect_color', 'raw', 'out:=/zed_node/left/image_rect_color']
-        # ),
-
-        # Image republisher for realsense camera
-        Node(
-            package='image_transport',
-            executable='republish',
-            name='decompress_realsense_image',
-            arguments=['compressed', 'in:=/camera/color/image_raw', 'raw', 'out:=/camera/color/image_raw'],
-            output='screen'
-        )
     ])

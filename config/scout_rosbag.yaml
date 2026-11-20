@@ -26,9 +26,8 @@ topomap:
   drift_coef: 0.3
 place_recognition:
   model: minkloc3d
-  #weights_path: /home/kirill/TopoSLAM/OpenPlaceRecognition/weights/place_recognition/habitat_multimodal_resnet18-gem-seqgem_minkloc3dv2.pth
-  weights_path: /home/kirill/TopoSLAM/OpenPlaceRecognition/weights/place_recognition/minkloc3d_nclt.pth
-  model_config_path: /home/kirill/TopoSLAM/OpenPlaceRecognition/configs/model/place_recognition/resnet18-seqgem_minkloc3dv2.yaml
+  weights_path: /home/docker_prism/OpenPlaceRecognition/weights/place_recognition/minkloc3d_nclt.pth
+  model_config_path: /home/docker_prism/OpenPlaceRecognition/configs/model/place_recognition/resnet18-seqgem_minkloc3dv2.yaml
   top_k: 5
   pointcloud_quantization_size: 0.2
 local_occupancy_grid:
@@ -43,7 +42,6 @@ scan_matching:
   outlier_thresholds: [5, 2, 1, 0.5, 0.5]
   min_matches: 5
 scan_matching_along_edge:
-  save_dir: /home/kirill/test_inline_registration
   model: feature2d
   detector_type: HarrisWithDistance
   score_threshold: 0.5
