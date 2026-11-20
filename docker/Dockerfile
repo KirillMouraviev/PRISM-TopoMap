@@ -178,17 +178,24 @@ RUN cd ${HOME} \
     && wget https://github.com/OPR-Project/OpenPlaceRecognition/releases/download/v0.2.1-weights/minkloc3d_nclt.pth
 
 RUN sudo apt-get update \
-    && sudo apt-get install -y tmux libopenblas-dev ffmpeg libsm6 libxext6 \
-    && sudo apt-get install -y ros-${ROS_DISTRO}-tf-transformations ros-${ROS_DISTRO}-rqt-graph ros-${ROS_DISTRO}-rviz2
+    && sudo apt-get install -y tmux libopenblas-dev ffmpeg libsm6 libxext6
+
+RUN if [ "$INSTALL_ROS2" = "true" ]; then \
+    sudo apt-get install -y ros-${ROS_DISTRO}-tf-transformations ros-${ROS_DISTRO}-rqt-graph ros-${ROS_DISTRO}-rviz2; \
+    fi
 
 RUN python3 -m pip install ros2-numpy scikit-image numpy-quaternion==2022.4.3 seaborn loguru cv_bridge
 
 # Clone PRISM-TopoMap
-RUN mkdir -p ${HOME}/ros2_ws/src \
-    && cd ${HOME}/ros2_ws/src \
-    && git clone --branch ros2 https://github.com/KirillMouraviev/PRISM-TopoMap \
-    && cd .. \
-    && colcon build
+
+RUN if [ "$INSTALL_ROS2" = "true" ]; then \
+        # source ROS2 setup script
+        mkdir -p ${HOME}/ros2_ws/src \
+        && cd ${HOME}/ros2_ws/src \
+        && git clone --branch ros2 https://github.com/KirillMouraviev/PRISM-TopoMap \
+        && cd .. \
+        && colcon build; \
+    fi
 
 RUN if [ "$INSTALL_ROS2" = "true" ]; then \
         # source ROS2 setup script
