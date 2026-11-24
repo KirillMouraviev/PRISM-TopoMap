@@ -62,14 +62,21 @@ docker compose build prism-dev
 docker compose build prism-dev-ros2
 ```
 
-After you build the image, you can run it and attach interactive terminal:
+Also, the image is available on Dockerhub:
+```bash
+docker pull kirillmouraviev/prism-topomap:cuda12.1-ros2-humble
+```
+
+After you build the image, you can start container and attach into it:
 
 ```bash
 # without ros2
-docker compose run --rm -it prism-dev bash
+docker compose up -d prism-dev
+docker exec -it <container_name> bash
 
 # with ros2
-docker compose run --rm -it prism-dev-ros2 bash
+docker compose up -d prism-dev-ros2
+docker exec -it <container_name> bash
 ```
 
 
@@ -99,42 +106,31 @@ Launch files for the demo contain the following args:
 
 Terminal 1
 ```
-roscore
+cd <path to rosbags>
+for bag in $(ls); do ros2 bag play $bag --clock; done;
 ```
 
 Terminal 2
 ```
-rosparam set use_sim_time true
-cd <path to rosbags>
-for bag in $(ls); do rosbag play $bag --clock; done;
-```
-
-Terminal 3
-```
 cd your_ros_workspace
-source devel/setup.bash
-roslaunch prism_topomap build_map_by_iou_scout_rosbag.launch
+source install/setup.bash
+ros2 launch prism_topomap build_map_by_iou_scout_rosbag.launch.py use_sim_time:=true
 ```
 
 ### SLAM in simulation
 
 Terminal 1
 ```
-roscore
+sudo -s
+<source ROS and Habitat ros workspace>
+ros2 launch habitat_ros toposlam_experiment_mp3d_4x90_large_noise.launch.py
 ```
 
 Terminal 2
 ```
-sudo -s
-<source ROS and Habitat ros workspace>
-roslaunch habitat_ros toposlam_experiment_mp3d_4x90_large_noise.launch
-```
-
-Terminal 3
-```
 cd your_ros_workspace
-source devel/setup.bash
-roslaunch prism_topomap build_map_by_iou_habitat.launch
+source install/setup.bash
+ros2 launch prism_topomap build_map_by_iou_habitat.launch.py
 ```
 
 ### Localization in simulation
@@ -143,21 +139,16 @@ May be launched after running SLAM on the same simulated scene. Specify the path
 
 Terminal 1
 ```
-roscore
+sudo -s
+<source ROS and Habitat ros workspace>
+ros2 launch habitat_ros toposlam_experiment_mp3d_4x90_large_noise.launch.py
 ```
 
 Terminal 2
 ```
-sudo -s
-<source ROS and Habitat ros workspace>
-roslaunch habitat_ros toposlam_experiment_mp3d_4x90_large_noise.launch
-```
-
-Terminal 3
-```
 cd your_ros_workspace
-source devel/setup.bash
-roslaunch prism_topomap habitat_mp3d_localization.launch
+source install/setup.bash
+ros2 launch prism_topomap habitat_mp3d_localization.launch.py
 ```
 
 ## Parameters in config
