@@ -908,8 +908,10 @@ def main(args=None):
     node = PRISMTopomapNode()
     executor = MultiThreadedExecutor()
     executor.add_node(node)
-    executor.spin()
-    node.save_graph()
+    try:
+        executor.spin()
+    finally:
+        node.save_graph()
 
 if __name__ == '__main__':
     main()
