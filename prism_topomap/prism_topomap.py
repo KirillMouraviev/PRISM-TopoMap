@@ -567,7 +567,10 @@ class TopoSLAMModel():
         # print('IoU:', iou)
         # print('Vcur:', self.last_vertex_id)
         dst = np.sqrt(self.rel_pose_of_vcur[0] ** 2 + self.rel_pose_of_vcur[1] ** 2)
-        if not inside_vcur or iou < self.iou_threshold or dst > self.max_edge_length:
+        # !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+        # Require fresh localization to change vcur !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+        # !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+        if localization_is_fresh and (not inside_vcur or iou < self.iou_threshold or dst > self.max_edge_length):
             self.need_to_change_vcur = True
             if not inside_vcur:
                 print('Moved outside vcur {}'.format(self.last_vertex_id))
